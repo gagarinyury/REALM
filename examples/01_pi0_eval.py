@@ -102,8 +102,11 @@ def eval(
             )
         carb_settings.set_bool("/rtx/pathtracing/optixDenoiser/enabled", True)
 
-    #carb_settings = lazy.carb.settings.get_settings()
+    carb_settings = lazy.carb.settings.get_settings()
     #carb_settings.set("/persistent/omnihydra/useSceneGraphInstancing", True)
+    carb_settings.set("/rtx/post/dlss/execMode", 0)
+    carb_settings.set("/rtx/pathtracing/optixDenoiser/enabled", True)
+    carb_settings.set("/rtx/pathtracing/maxBounces", 4)
     #enable_interactive_path_tracing(carb_settings, samples_per_pixel=1)
 
     def extract_from_obs(obs: dict):
