@@ -6,7 +6,8 @@ import os
 import random
 import omnigibson as og
 from omnigibson.macros import gm
-from realm.environments.realm_environment_dynamic import RealmEnvironmentDynamic
+#from realm.environments.realm_environment_dynamic import RealmEnvironmentDynamic
+from realm.environments.realm_environment_dynamic_vectorized import RealmEnvironmentDynamic
 from realm.inference import InferenceClient, extract_from_obs
 from realm.logging import VideoRecorder, save_results_to_csv
 
@@ -51,6 +52,14 @@ def set_sim_config():
     gm.ENABLE_TRANSITION_RULES = False # this needs to be off to avoid bug with sludge state during collision: https://github.com/StanfordVL/BEHAVIOR-1K/issues/1201
     gm.ENABLE_OBJECT_STATES = True # this needs to be on because push_switch task usees the ToggledOn state
 
+    # gm.USE_GPU_DYNAMICS = False
+    # gm.ENABLE_HQ_RENDERING = True  # True
+    # gm.ENABLE_FLATCACHE = True
+    # gm.HEADLESS = headless
+    # gm.USE_NUMPY_CONTROLLER_BACKEND = False
+    # if appdata_path is not None:
+    #     gm.APPDATA_PATH = appdata_path
+
     seed = 1234
     random.seed(seed)
     np.random.seed(seed)
@@ -68,11 +77,14 @@ def evaluate(
         horizon=8,
         model_type="pi0_FAST",
         port=8000,
+        num_envs=1,
+        rmgb_path=None,
         log_dir="/app/logs"
 ):
     set_sim_config()
+    if rmgb_path is None:
+        rmgb_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
-    # -------------------- Create the environment + client --------------------
     task = SUPPORTED_TASKS[task_id]
     perturbations = [SUPPORTED_PERTURBATIONS[perturbation_id]]
 
@@ -81,104 +93,94 @@ def evaluate(
     client = InferenceClient(model_type, port)
 
     env = RealmEnvironmentDynamic(
-        config_path="/app/realm/config",
+        config_path=f"{rmgb_path}/realm/config",
         task=task,
-        perturbations=perturbations
+        perturbations=perturbations,
+        num_envs=num_envs
     )
-
-    # def enable_interactive_path_tracing(carb_settings, samples_per_pixel=16):
-    #     carb_settings.set("/rtx/rendermode", "PathTracing")
-    #     if samples_per_pixel is not None:
-    #         carb_settings.set_int("/rtx/pathtracing/spp", samples_per_pixel)
-    #         carb_settings.set_int("/rtx/pathtracing/totalSpp", samples_per_pixel)
-    #         carb_settings.set_int(
-    #             "/rtx/pathtracing/useDirectLightingCache", False
-    #         )
-    #     carb_settings.set_bool("/rtx/pathtracing/optixDenoiser/enabled", True)
-    # carb_settings = lazy.carb.settings.get_settings()
-    # carb_settings.set("/rtx/post/dlss/execMode", 0)
-    # carb_settings.set("/rtx/pathtracing/optixDenoiser/enabled", True)
-    # carb_settings.set("/rtx/pathtracing/maxBounces", 4)
 
     global_timestamp = datetime.datetime.now().strftime("%Y_%m_%d_%H:%M:%S")
     results = []
 
-    for run_id in range(repeats):
-        # ------------------------ pre-configure each run --------------------------------
-        timestamp = datetime.datetime.now().strftime("%Y_%m_%d_%H:%M:%S")
+    video_recorders = [VideoRecorder(log_dir, global_timestamp, repeats) for _ in range(repeats)]
+    task_progression = [0.0 for _ in range(repeats)]
+    task_progression_timestamps = [[] for _ in range(repeats)]
 
-        video_recorder = VideoRecorder(log_dir, timestamp, run_id)
+    for batch_env_idx in range(repeats // num_envs):
+        observations, _ = env.reset(
+            env.omnigibson_vector_env,
+            env.active_perturbations,
+            None,  # self.realm_env.supported_pertrubations,
+            env.config_path,
+            env.scene_model,
+            env.scene_part
+        )
+        observations, rewards, terminates, truncates, infos = env.warmup(observations, env.omnigibson_vector_env, env.active_perturbations)
 
-        qpos = []
-        actions = []
-        action_buffer = Queue()
-
-        obs, _ = env.reset()
+        action_buffer = [Queue() for _ in range(num_envs)]
         instruction = env.instruction
-        print(instruction)
 
-        # -------------------- Rollout loop --------------------
-        obs, rew, terminated, truncated, info = env.warmup(obs)
+        for t in range(max_steps):
+            batched_actions = []
+            for env_idx in range(num_envs):
+                run_id = num_envs * batch_env_idx + env_idx
+                base_im, base_im_second, wrist_im, robot_state, gripper_state = extract_from_obs(observations[env_idx])
 
-        t = 0
-        task_progression = 0.0
-        task_progression_timestamps = []
-        terminal_steps = 15
-        while t < max_steps and terminal_steps > 0:
-            base_im, base_im_second, wrist_im, robot_state, gripper_state = extract_from_obs(obs)
+                if action_buffer[env_idx].empty():
+                    pred_action_chunk = client.infer(
+                        instruction, base_im, base_im_second, wrist_im, robot_state, gripper_state,
+                        use_base_im_second=(env.task_type == "open_close_drawer" if hasattr(env, "task_type") else False)
+                    )
 
-            if action_buffer.empty():
-                pred_action_chunk = client.infer(
-                    instruction, base_im, base_im_second, wrist_im, robot_state, gripper_state,
-                    use_base_im_second=(env.task_type == "open_close_drawer" if hasattr(env, "task_type") else False)
-                )
+                    if len(pred_action_chunk.shape) == 2:
+                        assert pred_action_chunk.shape[-1] == 8
+                        for action in pred_action_chunk[:horizon]:
+                            action = np.squeeze(action)
+                            action_buffer[env_idx].put(action)
+                    else:
+                        action_buffer[env_idx].put(pred_action_chunk)
 
-                if len(pred_action_chunk.shape) == 2:
-                    assert pred_action_chunk.shape[-1] == 8
-                    for action in pred_action_chunk[:horizon]:
-                        action = np.squeeze(action)
-                        action_buffer.put(action)
-                else:
-                    action_buffer.put(pred_action_chunk)
+                video_recorders[run_id].add_frame(base_im, wrist_im)
 
-            # Save frame
-            video_recorder.add_frame(base_im, wrist_im)
+                action = action_buffer[env_idx].get()
 
-            qpos.append(np.concatenate((robot_state, np.atleast_1d(np.array(gripper_state)))))
+                new_joint_action = action.copy()[:7]
+                new_gripper_state = 1 if action[7] > 0.5 else -1  # Prediction: (1,0) -> Target: (1,-1)
+                new_gripper_state = np.atleast_1d(np.array(new_gripper_state))
+                new_action = np.concatenate((new_joint_action, new_gripper_state))
+                batched_actions.append(new_action)
 
-            action = action_buffer.get()
-            actions.append(action)
+            observations, rewards, terminates, truncates, infos = env.step(
+                np.array(batched_actions), env.omnigibson_vector_env, env.active_perturbations
+            )
 
-            new_joint_action = action.copy()[:7]
+            for idx, reward in enumerate(rewards):
+                run_idx = num_envs * batch_env_idx + idx
+                if reward > task_progression[run_idx]:
+                    task_progression[run_idx] = reward
+                    task_progression_timestamps[run_idx].append(t)
 
-            new_gripper_state = 1 if action[7] > 0.5 else -1  # Prediction: (1,0) -> Target: (1,-1)
-            new_gripper_state = np.atleast_1d(np.array(new_gripper_state))
-            new_action = np.concatenate((new_joint_action, new_gripper_state))
+            print(batch_env_idx, t,
+                  task_progression[num_envs * batch_env_idx: num_envs * batch_env_idx + num_envs])
+            if all(prog == 1.0 for prog in
+                   task_progression[num_envs * batch_env_idx: num_envs * batch_env_idx + num_envs]):
+                print(f"All environments finished at step {t}")
+                break
 
-            obs, curr_task_progression, terminated, truncated, info = env.step(new_action)
-            print(f"{t}: {curr_task_progression}")
-
-            if curr_task_progression > task_progression:
-                task_progression = curr_task_progression
-                task_progression_timestamps.append(t)
-            if task_progression >= 1.0:
-                terminal_steps -= 1
-            t += 1
-
-        # ------------------------------------------------------------------------------
+    for run_id in range(repeats):
         results.append({
             "task": task,
             "perturbation": perturbations,
             "model": model_type,
             "real2sim": "Simulated",
-            "task_progression": task_progression,
-            "task_progression_timestamps": task_progression_timestamps,
-            "binary_SR": 1.0 if task_progression == 1.0 else 0.0
+            "task_progression": task_progression[run_id],
+            "task_progression_timestamps": task_progression_timestamps[run_id],
+            "binary_SR": 1.0 if task_progression[run_id] == 1.0 else 0.0,
         })
 
-        save_filename = os.path.join(log_dir, f"{timestamp}_{model_type}_rollout_{task}_{perturbations}_{run_id}")
-        video_recorder.save_video(save_filename)
-        video_recorder.cleanup()
+        save_filename = os.path.join(log_dir, f"{global_timestamp}_{model_type}_rollout_{task}_{perturbations}_{run_id}")
+        video_recorders[run_id].save_video(save_filename)
+        video_recorders[run_id].cleanup()
 
     # ------------------------------------------------------------------------------
     save_results_to_csv(results, log_dir, global_timestamp, model_type, task, perturbations[0])

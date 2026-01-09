@@ -13,6 +13,23 @@ def extract_from_obs(obs: dict):
     return base_im, base_im_second, wrist_im, robot_state, gripper_state
 
 
+def extract_from_obs_batched(self, obs: list):
+    base_ims = []
+    base_im_seconds = []
+    wrist_ims = []
+    robot_states = []
+    gripper_states = []
+
+    for env_idx in range(self.num_envs):
+        base_im, base_im_second, wrist_im, robot_state, gripper_state = self.extract_from_obs(obs[env_idx])
+        base_ims.append(base_im)
+        base_im_seconds.append(base_im_second)
+        wrist_ims.append(wrist_im)
+        robot_states.append(robot_state)
+        gripper_states.append(gripper_state)
+    return base_ims, base_im_seconds, wrist_ims, robot_states, gripper_states
+
+
 class InferenceClient:
     def __init__(self, model_type, port, host="localhost"):
         self.model_type = model_type
