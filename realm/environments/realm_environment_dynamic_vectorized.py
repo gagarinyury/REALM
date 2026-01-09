@@ -19,7 +19,7 @@ from realm.helpers import (calculate_new_camera_pose_mixed_rotations, add_rotati
 import omnigibson as og
 import omnigibson.utils.transform_utils as omnigibson_transform_utils
 import omnigibson.lazy as lazy
-from omnigibson.objects import DatasetObject
+from omnigibson.objects import DatasetObject, PrimitiveObject
 from omnigibson.utils.asset_utils import get_all_object_category_models
 from omnigibson.utils.asset_utils import get_all_object_models
 from omnigibson.utils.usd_utils import create_joint
@@ -27,7 +27,7 @@ from omnigibson.utils.constants import STRUCTURE_CATEGORIES
 from omnigibson.utils.asset_utils import get_all_object_categories, get_all_system_categories
 
 MISSING_PERTURBATIONS = ["V-OBJ", "VB-ISC", "VS-PROP", "SB-ADV", "SB-SMO"]
-SUPPORTED_TASK_TYPES = ["put", "pick", "rotate", "push", "stack"]# TODO: "open_close_drawer", "turn_faucet"
+SUPPORTED_TASK_TYPES = ["put", "pick", "rotate", "push", "stack"]
 
 
 class RealmEnvironmentDynamic(RealmEnvironmentBase):
@@ -43,7 +43,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         common_freq: int = None,
         num_envs: int = 2,
     ) -> None:
-        self.use_droid_with_base = use_droid_with_base # TODO: infer from task / scene config
+        self.use_droid_with_base = use_droid_with_base
         if self.use_droid_with_base:
             from realm.robots.franka_robotiq_mounted import FrankaPandaRobotiq
         else:
@@ -103,8 +103,6 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
         self.task_type = self.cfg["task_type"]
 
-        # TODO: move this to some compatibility matrix / exclusion list
-        # assert self.task_type in SUPPORTED_TASK_TYPES, (self.task_type, SUPPORTED_TASK_TYPES)
         if "SB-NOUN" in self.active_perturbations and self.task_type == "push":
             raise NotImplementedError()
 
@@ -128,10 +126,11 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         self.friction = np.array([0.05, 0.10, 0.05, 0.10, 0.75, 0.425, 0.20])
         self.armature = np.array([0.25, 0.50, 0.25, 0.50, 0.25, 0.150, 0.00])
         self.update_robot_physics(self.omnigibson_vector_env, self.friction, self.armature)
-        self.apply_scene_fixes_from_cfg(self.omnigibson_vector_env, self.config_path, self.scene_model, self.scene_part)
+        self.apply_scene_fixes_from_cfg(self.config_path, self.scene_model, self.scene_part)
         self.disable_visual_toggles()
 
         super().__init__(
+            og_vec_env=self.omnigibson_vector_env,
             main_objects=self.main_objects,
             target_objects=self.target_objects,
             task=self.task,
@@ -162,13 +161,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         cfg["scene"] = {
             "type": "InteractiveTraversableScene",
             "scene_model": self.scene_model,
-            #"load_object_categories": list(get_all_object_categories()),
         }
-        # cfg["scene"] = {
-        #     "type": "InteractiveTraversableScene",
-        #     "scene_model": "Rs_int",
-        #     "load_object_categories": ["floors", "walls"],
-        # }
 
         spawn_config_path = f"{self.config_path}/scenes/scenes.yaml"
         spawn_cfg = yaml.load(open(spawn_config_path, "r"), Loader=yaml.FullLoader)
@@ -231,8 +224,6 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                     obj["relative_bbox_position"][0] += obj_pos_modifier_x * (x_max - x_min)
             obj["position"] = [x + y for x, y in zip(obj["relative_bbox_position"], [x_min, y_min, z])]
 
-        # TODO: the pipeline is broken for dynamically reducing # objects when there are too many distractors and
-        # they become unplaceable - 3 is always fine and easy to place so we use that for now as maximum
         num_distractors = 3 if any(p in self.active_perturbations for p in ["V-SC"]) else 0 #"VB-ISC" #"SB-NOUN"
         cfg["objects"] = None
         distractors = []
@@ -244,7 +235,6 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                     excluded_categories.append(obj["category"])
             distractors = self.sample_objects(num_objects=num_distractors, excluded_categories=excluded_categories)
 
-            # TODO: this placement algo is naive and super bad actually, improve this
             cfg["objects"] = get_non_colliding_positions_for_objects_v2(
                     xmin=x_min,
                     xmax=x_max,
@@ -261,9 +251,8 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         if "distractors" in comprehensive_cfg:
             distractors += comprehensive_cfg["distractors"]
         if "immutables" in comprehensive_cfg:
-            distractors += comprehensive_cfg["immutables"] # immutables go here because the distractor list above is meant to be replaceable objects
+            distractors += comprehensive_cfg["immutables"]
 
-        # make sure positions exist
         for obj in cfg["objects"]:
             assert "position" in obj
 
@@ -282,9 +271,6 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         cfg_external_sensors["external_sensors"][0]["orientation"] = base_cam_rot
         cfg_external_sensors["external_sensors"][1]["position"] = second_base_cam_pos
         cfg_external_sensors["external_sensors"][1]["orientation"] = second_base_cam_rot
-        # Debugging camera view:
-        # cfg_external_sensors["external_sensors"][1]["position"] = [-0.64, -1.7, 1.0625] #second_base_cam_pos
-        # cfg_external_sensors["external_sensors"][1]["orientation"] = [ 0.2847762, -0.4648792, -0.7096336, 0.4463295 ] #second_base_cam_rot
 
         if "env" not in cfg:
             cfg["env"] = {}
@@ -300,8 +286,6 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         assert pose_name in self.cfg_camera_extrinsics
         base_cam_pos = self.cfg_camera_extrinsics[pose_name]["pos"]
         base_cam_rot = self.cfg_camera_extrinsics[pose_name]["rot"]
-        print(len(base_cam_pos), len(base_cam_rot))
-        print(len(robot_pos), len(robot_rot))
         base_cam_pos, base_cam_rot = calculate_new_camera_pose_mixed_rotations(
             base_cam_pos, base_cam_rot,
             robot_pos, robot_rot
@@ -314,7 +298,6 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             for obj in env.scene.objects:
                 if og.object_states.ToggledOn in obj.states:
                     obj.states[og.object_states.ToggledOn].visual_marker.scale = 0.01
-                    #obj.states[og.object_states.ToggledOn].visual_marker.visible = False
 
     # ============================== [PERTURBATIONS] ==============================
     def default(self):
@@ -323,7 +306,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
     def v_light(self, intensity=None):
 
 
-        def find_lights_recursive(obj): # TODO: move the search to new scene instantiation, pointless to call it everytime unless we are swapping scene
+        def find_lights_recursive(obj):
             lights = []
             if "light" in obj.name:
                 lights.append(obj)
@@ -333,15 +316,6 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                     lights.extend(find_lights_recursive(link))
 
             return lights
-
-        # def find_light_prim(light_object):
-        #     object_prim = light_object.root_prim
-        #     for child in object_prim.GetChildren():
-        #         if child.GetTypeName() == "Xform":
-        #             for grand_child in child.GetChildren():
-        #                 if grand_child.IsA(lazy.pxr.UsdLux.Light):
-        #                     return grand_child
-        #     return None
 
         for idx, env in enumerate(self.omnigibson_vector_env.envs):
             if intensity is None:
@@ -353,35 +327,18 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
             col_mean = np.array([255, 214, 170])
             col_std = 15
-            world_path = f"/World/scene_{idx}" # TODO: is this atrue for vectorized envs?
+            world_path = f"/World/scene_{idx}"
             for light in all_lights:
-                light_prim_path = world_path + light._relative_prim_path + "/light_0" # TODO: ^^^
+                light_prim_path = world_path + light._relative_prim_path + "/light_0"
                 light_prim = lazy.omni.isaac.core.utils.prims.get_prim_at_path(light_prim_path)
-                if light_prim is None or not light_prim.IsValid(): # the recursive search also takes links that do not contain the light object, these are skipped here
+                if light_prim is None or not light_prim.IsValid():
                     continue
-                #assert light_prim.IsValid()
 
                 light_prim.GetAttribute("inputs:intensity").Set(intensity)
 
                 color = np.random.normal(loc=col_mean, scale=col_std, size=(3,))
                 color = np.clip(color, 0, 255).astype(float) / 255.0
                 light_prim.GetAttribute("inputs:color").Set(lazy.pxr.Gf.Vec3f(*color))
-
-        # for light in all_lights:
-        #     light_prim = find_light_prim(light)
-        #     if not light_prim.IsValid(): # the recursive search also takes links that do not contain the light object, these are skipped here
-        #         continue
-        #     #assert light_prim and light_prim.IsValid()
-        #
-        #     # light_prim_path = light_prim.GetPath().pathString
-        #     # light_prim = lazy.omni.isaac.core.utils.prims.lazy_prims_utils.get_prim_at_path(light_prim_path)
-        #     # assert light_prim.IsValid()
-        #
-        #     light_prim.GetAttribute("inputs:intensity").Set(intensity)
-        #
-        #     color = np.random.normal(loc=col_mean, scale=col_std, size=(3,))
-        #     color = np.clip(color, 0, 255).astype(float) / 255.0
-        #     light_prim.GetAttribute("inputs:color").Set(lazy.pxr.Gf.Vec3f(*color))
 
     def v_view(self):
         def perturb_camera_pose(cam_pos: list[float], cam_orientation: list[float]) -> tuple[list[float], list[float]]:
@@ -402,7 +359,6 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
             return cam_pos, cam_orientation
 
-        # TODO: in some cases, the objects are not fully visible - add a look_at or similar to minimize these cases
         og.sim.stop()
         for idx, env in enumerate(self.omnigibson_vector_env.envs):
             for i in range(len(env.external_sensors)):
@@ -433,123 +389,77 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         for idx, env in enumerate(self.omnigibson_vector_env.envs):
             included_categories = None
             if self.task_type == "push":
-                included_categories = ["electric_switch", "thermostat"] # TODO: microwave, monitor buttons (maybe more)?
+                included_categories = ["electric_switch", "thermostat"]
 
             fixed_base_loc = True if self.task_type == "push" else False
-            nobj, nobj_cfg = self.replace_obj(self.main_objects[0], included_categories=included_categories, maximum_dim=0.185, fixed_base=fixed_base_loc)
-            self.main_objects = [nobj]
-            print("DEBUG:", nobj_cfg["model"])
+            nobj, nobj_cfg = self.replace_obj(env, self.main_objects[idx][0], included_categories=included_categories, maximum_dim=0.185, fixed_base=fixed_base_loc)
+            self.main_objects[idx] = [nobj]
 
             self.instruction = self.cfg["instruction"].replace(self.cfg["instruction_obj_to_replace"], nobj_cfg["category"].replace("_", " "))
             if nobj_cfg["model"] in ["strbnw", "gashan", "qxhtct", "wseglt"]:
-                self.main_objects[0].set_orientation(np.array([0, 0, 0.7071068, 0.7071068]))
-            # elif nobj_cfg["model"] in ["hpowgy", "hrwnhp", "jophec"]:
-            #     self.main_objects[0].set_orientation(np.array([0, 0, 1, 0]))  # wall flip 180
-                #self.main_objects[0].set_orientation(np.array([-0.4330127, -0.4330127, 0.25, 0.75])) # tabletop flip 180
+                self.main_objects[idx][0].set_orientation(np.array([0, 0, 0.7071068, 0.7071068]))
 
             if og.object_states.ToggledOn in nobj.states:
                 nobj.states[og.object_states.ToggledOn].visual_marker.visible = False
 
         og.sim.play()
-        # fake rest to get to original pose after stopping sim
         for _ in range(30):
-            a = np.concatenate((self.reset_qpos[:7], np.atleast_1d(np.array([-1]))))
-
-            self.omnigibson_vector_env.step()
+            action = np.concatenate((self.reset_qpos[:7], np.atleast_1d(np.array([-1]))))
+            batched_action = np.tile(action, (self.num_envs, 1))
+            self.omnigibson_vector_env.step(batched_action)
 
     def vb_pose(self):
         # --------------- Translation ---------------
         if self.task_type == "push":
             delta_z = np.random.uniform(-0.15, 0.15)
             delta_xy = np.random.uniform(-0.075, 0.075)
-            for obj_cfg in self.cfg["objects"]:
-                if obj_cfg["name"] == "electric_switch":
-                    obj = self.omnigibson_env.scene.object_registry("name", obj_cfg["name"])
-                    init_pos = self.init_poses[obj._relative_prim_path]["pos"]
-                    init_pos[2] += delta_z
-                    init_pos[0] += delta_xy # TODO: this is only for pomaria light switch, elsewhere it might be y axis on the wall...
-                    og.sim.stop()
-                    obj.set_position_orientation(init_pos)
-                    og.sim.play()
+            for idx, env in enumerate(self.omnigibson_vector_env.envs):
+                for obj_cfg in self.cfg["objects"]:
+                    if obj_cfg["name"] == "electric_switch":
+                        obj = env.scene.object_registry("name", obj_cfg["name"])
+                        init_pos = self.init_poses[idx][obj._relative_prim_path]["pos"]
+                        init_pos[2] += delta_z
+                        init_pos[0] += delta_xy # TODO: this is only for pomaria light switch, elsewhere it might be y axis on the wall...
+                        og.sim.stop()
+                        obj.set_position_orientation(init_pos)
+                        og.sim.play()
         else:
-            self.cfg["objects"] = get_non_colliding_positions_for_objects_v2(
-                xmin=self.spawn_bbox[0],
-                xmax=self.spawn_bbox[1],
-                ymin=self.spawn_bbox[2],
-                ymax=self.spawn_bbox[3],
-                z=self.spawn_bbox[4],
-                obj_cfg=self.cfg["objects"],
-                objects_to_skip=[obj.name for obj in self.distractors + self.target_objects],
-                main_object_names=[],
-                max_attempts_per_object=250000 # TODO: this must be successful, careful what we do here...
-            )
-
-            # obj_cfgs = copy.deepcopy(self.cfg["objects"])
-            # num_mo_to = len(self.target_objects + self.main_objects)
-            #
-            # self.cfg["objects"] = None
-            # num_distractors = len(obj_cfgs) - num_mo_to
-            #
-            # while self.cfg["objects"] is None and num_distractors >= 0:
-            #     # TODO: this placement algo is naive and super bad actually, improve this
-            #     self.cfg["objects"] = get_non_colliding_positions_for_objects(
-            #             xmin=self.spawn_bbox[0],
-            #             xmax=self.spawn_bbox[1],
-            #             ymin=self.spawn_bbox[2],
-            #             ymax=self.spawn_bbox[3],
-            #             z=self.spawn_bbox[4],
-            #             obj_cfg=obj_cfgs[:num_mo_to + num_distractors],
-            #             #obj_cfg=self.cfg["objects"],
-            #             objects_to_skip=[obj.name for obj in self.distractors],
-            #             main_object_names=[]
-            #         )
-            #     num_distractors -= 1
-            # assert num_distractors > -1, "Failed to place task objects with 0 distractors. This is not expected - investigate position config in your task or reach out to us."
-
             og.sim.stop()
-            for obj_cfg in self.cfg["objects"]:
-                self.omnigibson_env.scene.object_registry("name", obj_cfg["name"]).set_position_orientation(obj_cfg["position"])
+            for idx, env in enumerate(self.omnigibson_vector_env.envs):
+                new_obj_cfgs = get_non_colliding_positions_for_objects_v2(
+                    xmin=self.spawn_bbox[0],
+                    xmax=self.spawn_bbox[1],
+                    ymin=self.spawn_bbox[2],
+                    ymax=self.spawn_bbox[3],
+                    z=self.spawn_bbox[4],
+                    obj_cfg=self.cfg["objects"],
+                    objects_to_skip=[obj.name for obj in self.distractors[idx] + self.target_objects[idx]],
+                    main_object_names=[],
+                    max_attempts_per_object=250000
+                )
 
-            # --------------- Rotation ---------------
-            for o in self.main_objects:
-                tmp = o.get_orientation()
-                o.set_orientation(add_rotation_noise(tmp, (0, 0, 3.14)))
+                for obj_cfg in new_obj_cfgs:
+                    env.scene.object_registry("name", obj_cfg["name"]).set_position_orientation(obj_cfg["position"])
+
+                # --------------- Rotation ---------------
+                for o in self.main_objects[idx]:
+                    tmp = o.get_orientation()
+                    o.set_orientation(add_rotation_noise(tmp, (0, 0, 3.14)))
             og.sim.play()
 
-        # fake rest to get to original pose after stopping sim
         for _ in range(30):
-            self.omnigibson_env.step(np.concatenate((self.reset_qpos[:7], np.atleast_1d(np.array([-1])))))
+            action = np.concatenate((self.reset_qpos[:7], np.atleast_1d(np.array([-1]))))
+            batched_action = np.tile(action, (self.num_envs, 1))
+            self.omnigibson_vector_env.step(batched_action)
 
 
     def b_hobj(self):
         s = np.random.uniform(0.25, 3)
-        for obj in self.main_objects:
-            for link in obj._links.values():
-                link.mass = min(link.mass * s, 2.0) # clip at 2.0kg payload
-                link.mass *= s
-
-                # TODO: add frictions
-                # print(type(link))
-                # print(link)
-                # link_name = link.name
-                # mat_name = f"{link_name}_physics_mat"
-                # physics_mat = lazy.isaacsim.core.api.materials.physics_material.PhysicsMaterial(
-                #     prim_path=f"{link.prim_path}/Looks/{mat_name}",
-                #     name=mat_name,
-                #     **material_info,
-                # )
-                # for msh in self.links[link_name].collision_meshes.values():
-                #     msh.apply_physics_material(physics_mat)
-
-
-                # link_prim = link._prim
-                # if not link_prim.HasAPI(lazy.pxr.UsdPhysics.RigidBodyAPI):
-                #     lazy.pxr.UsdPhysics.RigidBodyAPI.Apply(link_prim)
-                # og.sim.step()
-                # link_prim.GetAttribute("physxRigidBody:dynamicFriction").Set(0.5)
-                # link_prim.GetAttribute("physxRigidBody:staticFriction").Set(0.5)
-                # print(link.get_attribute("physxRigidBody:dynamicFriction"))
-                # print(link.get_attribute("physxRigidBody:staticFriction"))
+        for idx in range(self.num_envs):
+            for obj in self.main_objects[idx]:
+                for link in obj._links.values():
+                    link.mass = min(link.mass * s, 2.0) # clip at 2.0kg payload
+                    link.mass *= s
 
     def apply_cached_semantic_perturbations(self, perturbation):
         tmp = self.cfg["cached_semantic_perturbations"][perturbation]
@@ -572,21 +482,19 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         self.apply_cached_semantic_perturbations("S-INT")
 
     def sb_noun(self):
-        i = np.random.randint(len(self.distractors))
-        new_mo = self.distractors.pop(i)
-        new_obj_for_task = new_mo.category
-        # TODO: Pavlo: You can open only drawers/doors not any distractor
-        self.instruction = self.cfg["instruction"].replace(self.cfg["instruction_obj_to_replace"], new_obj_for_task)
-        self.instruction = self.instruction.replace("_", " ")
+        for idx in range(self.num_envs):
+            i = np.random.randint(len(self.distractors[idx]))
+            new_mo = self.distractors[idx].pop(i)
+            new_obj_for_task = new_mo.category
 
-        self.distractors.append(self.main_objects[0])
-        self.main_objects[0] = new_mo
-        print([obj.name for obj in self.main_objects])
-        print([obj.name for obj in self.distractors])
+            if idx == 0:
+                 self.instruction = self.cfg["instruction"].replace(self.cfg["instruction_obj_to_replace"], new_obj_for_task)
+                 self.instruction = self.instruction.replace("_", " ")
+
+            self.distractors[idx].append(self.main_objects[idx][0])
+            self.main_objects[idx][0] = new_mo
 
     def sb_vrb(self):
-        #all_available_task_types = [task for task in SUPPORTED_TASK_TYPES if task != self.task_type]
-
         compatibility_matrix = {
             "put": ["pick", "rotate", "stack"],
             "push": [], #["put", "pick", "rotate", "stack"],
@@ -611,75 +519,93 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             self.instruction = f"put the {self.cfg['instruction_obj_to_replace']} into the {self.cfg['instruction_target_to_replace']}"
         else:
             raise NotImplementedError()
-        self.task_progression = TASK_PROGRESSIONS[self.task_type]
+        self.task_progression = [TASK_PROGRESSIONS[self.task_type].copy() for _ in range(self.num_envs)]
 
         included_categories = None
         if self.task_type == "put":
             included_categories = ["bowl", "wineglass"]
 
-        if len(self.target_objects) == 0:
+        if len(self.target_objects[0]) == 0:
+            # We need to add a receiver object to all envs
+
             nobj_cfg = self.sample_objects(num_objects=1, included_categories=included_categories)[0]
             self.cfg['instruction_target_to_replace'] = nobj_cfg["category"]
             nobj_cfg["name"] = "receiver"
 
-            new_obj = DatasetObject(
-                name="receiver",
-                relative_prim_path="/receiver",
-                category=nobj_cfg["category"],
-                model=nobj_cfg["model"],
-            )
-            self.omnigibson_env.scene.add_object(new_obj)
-            self.target_objects = [new_obj]
+            for idx, env in enumerate(self.omnigibson_vector_env.envs):
+                new_obj = DatasetObject(
+                    name="receiver",
+                    relative_prim_path="/receiver",
+                    category=nobj_cfg["category"],
+                    model=nobj_cfg["model"],
+                )
+                env.scene.add_object(new_obj)
+                self.target_objects[idx] = [new_obj]
 
-            bbox_center, bbox_orn, bbox_extent, bbox_center_in_frame = new_obj.get_base_aligned_bbox()
-            nobj_cfg["bounding_box"] = bbox_center
+                # Reconstruct obj_cfg list for placement
+                obj_cfgs = []
+                # Main objects
+                for obj in self.main_objects[idx]:
+                     pos, orn = obj.get_position_orientation()
+                     obj_cfgs.append({"name": obj.name, "position": pos.tolist(), "orientation": orn.tolist(), "bounding_box": obj.aabb_extent.tolist()})
 
-            max_dim = np.max(bbox_extent.numpy())
-            new_scale_factor = 0.185 / max_dim
-            if new_scale_factor < 1.0:
-                new_obj.scale = new_scale_factor
-                nobj_cfg["bounding_box"] = nobj_cfg["bounding_box"] * new_scale_factor
+                # Distractors
+                for obj in self.distractors[idx]:
+                     pos, orn = obj.get_position_orientation()
+                     obj_cfgs.append({"name": obj.name, "position": pos.tolist(), "orientation": orn.tolist(), "bounding_box": obj.aabb_extent.tolist()})
 
-            self.cfg["objects"].append(nobj_cfg)
+                # The NEW target object
+                # We need to give it a bbox so the helper can place it
+                bbox_center, bbox_orn, bbox_extent, bbox_center_in_frame = new_obj.get_base_aligned_bbox()
+                max_dim = np.max(bbox_extent.numpy())
+                new_scale_factor = 0.185 / max_dim
+                if new_scale_factor < 1.0:
+                    new_obj.scale = new_scale_factor
+                    bbox_extent = bbox_extent * new_scale_factor
 
-            # --------------- Translation ---------------
-            obj_cfgs = copy.deepcopy(self.cfg["objects"])
-            num_mo_to = len(obj_cfgs) - 1
+                obj_cfgs.append({"name": new_obj.name, "bounding_box": bbox_extent.tolist()})
 
-            self.cfg["objects"] = get_non_colliding_positions_for_objects_v2(
-                xmin=self.spawn_bbox[0],
-                xmax=self.spawn_bbox[1],
-                ymin=self.spawn_bbox[2],
-                ymax=self.spawn_bbox[3],
-                z=self.spawn_bbox[4],
-                obj_cfg=obj_cfgs,
-                objects_to_skip=[obj.name for obj in self.main_objects + self.distractors],
-                main_object_names=[o["name"] for o in obj_cfgs[:num_mo_to]],
-                max_attempts_per_object=250000
-            )
+                # Find positions
+                placed_objects = get_non_colliding_positions_for_objects_v2(
+                    xmin=self.spawn_bbox[0],
+                    xmax=self.spawn_bbox[1],
+                    ymin=self.spawn_bbox[2],
+                    ymax=self.spawn_bbox[3],
+                    z=self.spawn_bbox[4],
+                    obj_cfg=obj_cfgs,
+                    objects_to_skip=[obj.name for obj in self.main_objects[idx] + self.distractors[idx]],
+                    main_object_names=[o.name for o in self.main_objects[idx]],
+                    max_attempts_per_object=1000
+                )
 
-            pos = torch.tensor(self.cfg["objects"][-1]["position"])
-            rot = torch.tensor(self.cfg["objects"][-1]["orientation"] if "orientation" in self.cfg["objects"][-1] else [0,0,0,1])
-            new_obj.set_bbox_center_position_orientation(pos, rot)
+                # Apply positions
+                for obj_cfg in placed_objects:
+                    env.scene.object_registry("name", obj_cfg["name"]).set_position(obj_cfg["position"])
 
-            self.init_poses[new_obj._relative_prim_path] = {}
-            self.init_poses[new_obj._relative_prim_path]["pos"] = pos
-            self.init_poses[new_obj._relative_prim_path]["rot"] = rot
+                # Update init_poses for the new object
+                # We need to find the placed config for receiver
+                for obj_cfg in placed_objects:
+                    if obj_cfg["name"] == "receiver":
+                        self.init_poses[idx][new_obj._relative_prim_path] = {
+                            "pos": torch.tensor(obj_cfg["position"]),
+                            "rot": torch.tensor(obj_cfg["orientation"] if "orientation" in obj_cfg else [0,0,0,1])
+                        }
+                        # Also apply to object now
+                        new_obj.set_bbox_center_position_orientation(
+                            torch.tensor(obj_cfg["position"]),
+                            self.init_poses[idx][new_obj._relative_prim_path]["rot"]
+                        )
+                        break
 
-            # --------------- Set Position ---------------
-            for obj in self.cfg["objects"]:
-                self.omnigibson_env.scene.object_registry("name", obj["name"]).set_position(obj["position"])
+            og.sim.step()
 
-        og.sim.step()
-        if self.task_type in ["put", "stack"]:
-            og.sim.stop()
-            # --------------- Replace the objects models ---------------
-            nobj, _ = self.replace_obj(self.target_objects[0], included_categories=included_categories, maximum_dim=0.185)
-            self.target_objects = [nobj]
-            og.sim.play()
-            # fake rest to get to original pose after stopping sim
-            for _ in range(30):
-                self.omnigibson_env.step(np.concatenate((self.reset_qpos[:7], np.atleast_1d(np.array([-1])))))
+            # Replacing object models
+            if self.task_type in ["put", "stack"]:
+                og.sim.stop()
+                for idx, env in enumerate(self.omnigibson_vector_env.envs):
+                    nobj, _ = self.replace_obj(env, self.target_objects[idx][0], included_categories=included_categories, maximum_dim=0.185)
+                    self.target_objects[idx] = [nobj]
+                og.sim.play()
 
     def vb_mobj(self):
         # sample rescaling of the bbox
@@ -690,139 +616,87 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             if s1 * s2 * s3 <= 1.5:
                 break
 
-        scene = self.omnigibson_env.scene
-        mo = self.main_objects[0]
+        og.sim.stop()
+        for idx, env in enumerate(self.omnigibson_vector_env.envs):
+            scene = env.scene
+            mo = self.main_objects[idx][0]
 
-        if type(mo) != DatasetObject:
-            # assumes the primitives have a defautl scale 1,1,1 hence the orig bbox can be used as replacement
-            og.sim.stop()
-            mo.scale = torch.tensor(self.mo_bbox_orig) * torch.tensor([s1, s2, s3])
-            mo.fix
-            og.sim.play()
-            for _ in range(30):
-                self.omnigibson_env.step(np.concatenate((self.reset_qpos[:7], np.atleast_1d(np.array([-1])))))
-        else:
-            obj_name = mo.name
-            obj_model = mo.model
-            obj_cfg = get_default_objects_cfg(self.omnigibson_env.scene, [mo.name])[obj_name]
-            scene.remove_object(mo)
+            if type(mo) != DatasetObject:
+                # assumes the primitives have a defautl scale 1,1,1 hence the orig bbox can be used as replacement
+                mo.scale = torch.tensor(self.mo_bbox_orig) * torch.tensor([s1, s2, s3])
+            else:
+                obj_name = mo.name
+                obj_model = mo.model
+                obj_cfg = get_default_objects_cfg(env.scene, [mo.name])[obj_name]
+                scene.remove_object(mo)
 
-            new_bbox = self.mo_bbox_orig * np.array([s1, s2, s3])
-            new_bbox = np.clip(new_bbox, a_min=0.02, a_max=0.175)
+                new_bbox = self.mo_bbox_orig * np.array([s1, s2, s3])
+                new_bbox = np.clip(new_bbox, a_min=0.02, a_max=0.175)
 
-            new_obj = DatasetObject(
-                name=obj_name,
-                relative_prim_path=obj_cfg["relative_prim_path"],
-                category=obj_cfg["category"],
-                model=obj_model,
-                bounding_box=torch.tensor(new_bbox, dtype=torch.float32)
-            )
-            scene.add_object(new_obj)
-            new_obj.set_bbox_center_position_orientation(obj_cfg["pos"], obj_cfg["ori"])
-            self.main_objects = [new_obj]
+                new_obj = DatasetObject(
+                    name=obj_name,
+                    relative_prim_path=obj_cfg["relative_prim_path"],
+                    category=obj_cfg["category"],
+                    model=obj_model,
+                    bounding_box=torch.tensor(new_bbox, dtype=torch.float32)
+                )
+                scene.add_object(new_obj)
+                new_obj.set_bbox_center_position_orientation(obj_cfg["pos"], obj_cfg["ori"])
+                self.main_objects[idx] = [new_obj]
+        og.sim.play()
+
+        for _ in range(30):
+            action = np.concatenate((self.reset_qpos[:7], np.atleast_1d(np.array([-1]))))
+            batched_action = np.tile(action, (self.num_envs, 1))
+            self.omnigibson_vector_env.step(batched_action)
 
     def v_sc(self):
-        # --------------- Translation ---------------
         og.sim.stop()
 
-        obj_cfgs = copy.deepcopy(self.cfg["objects"])
-        num_mo_to = len(self.target_objects + self.main_objects)
+        for idx, env in enumerate(self.omnigibson_vector_env.envs):
+            # We need to generate positions for each env
+            obj_cfgs = copy.deepcopy(self.cfg["objects"])
+            num_mo_to = len(self.target_objects[idx] + self.main_objects[idx])
 
-        self.cfg["objects"] = None
-        num_distractors = len(obj_cfgs) - num_mo_to
+            # self.cfg["objects"] is shared, but we need per-env config for placement
+            env_obj_cfg = copy.deepcopy(self.cfg["objects"])
 
-        while self.cfg["objects"] is None and num_distractors >= 0:
-            # TODO: this placement algo is naive and super bad actually, improve this
-            self.cfg["objects"] = get_non_colliding_positions_for_objects(
-                    xmin=self.spawn_bbox[0],
-                    xmax=self.spawn_bbox[1],
-                    ymin=self.spawn_bbox[2],
-                    ymax=self.spawn_bbox[3],
-                    z=self.spawn_bbox[4],
-                    obj_cfg=obj_cfgs[:num_mo_to + num_distractors],
-                    objects_to_skip=[obj.name for obj in self.target_objects + self.main_objects],
-                    main_object_names=[o["name"] for o in obj_cfgs[:num_mo_to]]
-                )
-            num_distractors -= 1
-        assert num_distractors > -1, "Failed to place task objects with 0 distractors. This is not expected - investigate position config in your task or reach out to us."
+            num_distractors = len(env_obj_cfg) - num_mo_to
 
-        self.distractors = [self.omnigibson_env.scene.object_registry("name", dist["name"]) for dist in self.cfg["objects"][num_mo_to:]]
+            # This loop tries to place objects with decreasing number of distractors if it fails
+            placed_objects = None
+            current_num_distractors = num_distractors
 
-        # --------------- Set Position ---------------
-        for obj in self.cfg["objects"]:
-            self.omnigibson_env.scene.object_registry("name", obj["name"]).set_position(obj["position"])
+            while placed_objects is None and current_num_distractors >= 0:
+                placed_objects = get_non_colliding_positions_for_objects_v2(
+                        xmin=self.spawn_bbox[0],
+                        xmax=self.spawn_bbox[1],
+                        ymin=self.spawn_bbox[2],
+                        ymax=self.spawn_bbox[3],
+                        z=self.spawn_bbox[4],
+                        obj_cfg=env_obj_cfg[:num_mo_to + current_num_distractors],
+                        objects_to_skip=[obj.name for obj in self.target_objects[idx] + self.main_objects[idx]],
+                        main_object_names=[o["name"] for o in env_obj_cfg[:num_mo_to]]
+                    )
+                current_num_distractors -= 1
 
-        # TODO: support this again? rn we just use default rot for the objects
-        # # --------------- Set Rotation ---------------
-        # for o in self.distractors:
-        #     tmp = o.get_orientation()
-        #     o.set_orientation(add_rotation_noise(tmp, (3.14, 3.14, 3.14)))
+            assert placed_objects is not None
 
-        # --------------- Replace the objects models ---------------
-        distractor_obj_cfgs = get_default_objects_cfg(self.omnigibson_env.scene, [obj.name for obj in self.distractors])
-        distractor_objs = get_objects_by_names(self.omnigibson_env.scene, list(distractor_obj_cfgs.keys()))
-        for distractor in distractor_objs:
-            _, _ = self.replace_obj(distractor, included_categories=get_droid_categories_full())
+            # Update distractors list for this env
+            self.distractors[idx] = [env.scene.object_registry("name", dist["name"]) for dist in placed_objects[num_mo_to:]]
+
+            # Set Position
+            for obj in placed_objects:
+                env.scene.object_registry("name", obj["name"]).set_position(obj["position"])
+
+            # Replace models
+            distractor_obj_cfgs = get_default_objects_cfg(env.scene, [obj.name for obj in self.distractors[idx]])
+            distractor_objs = get_objects_by_names(env.scene, list(distractor_obj_cfgs.keys()))
+            for distractor in distractor_objs:
+                _, _ = self.replace_obj(env, distractor, included_categories=get_droid_categories_by_theme().values()) # Approximation of all droid categories
 
         og.sim.play()
-        # fake rest to get to original pose after stopping sim
-        for _ in range(30):
-            self.omnigibson_env.step(np.concatenate((self.reset_qpos[:7], np.atleast_1d(np.array([-1])))))
 
-
-    # ============================== [ROLLOUT UTILS] ==============================
-    # def warmup(self, obs=None):
-    #     print("Starting warmup...")
-    #     for _ in range(15):
-    #         og.sim.render()
-    #
-    #     if obs is None:
-    #         obs, _ = self.reset()
-    #
-    #     is_gripper_closed = True
-    #     for t in range(19):
-    #         new_action = np.concatenate((
-    #             obs['franka']['proprio'][:7].cpu().numpy(),
-    #             np.atleast_1d(np.array([-1]))
-    #         ))
-    #         if t != 0 and t % 10 == 0:
-    #             is_gripper_closed = not is_gripper_closed
-    #         new_action[-1] = 1 if is_gripper_closed else -1
-    #
-    #         obs, rew, terminated, truncated, info = self.omnigibson_env.step(new_action)
-    #
-    #     self.mo_pos_orig, self.mo_rot_orig = self.main_objects[0].get_position_orientation()
-    #     print("Warmup finished.")
-    #     return obs, rew, terminated, truncated, info
-
-    # def reset(self):
-    #     obs, _ = self.omnigibson_env.reset()
-    #
-    #     self.apply_scene_fixes_from_cfg(self.omnigibson_vector_env, self.config_path, self.scene_model, self.scene_part)
-    #     #self.disable_visual_toggles()
-    #
-    #     self.was_lifted = False
-    #     for k in self.task_progression.keys():
-    #         self.task_progression[k] = False
-    #
-    #     for p in self.active_perturbations:
-    #         self.supported_pertrubations[p]()
-    #     if "V-AUG" in self.active_perturbations:
-    #         self.v_aug_sigma = np.random.uniform(0.0, 3.0)
-    #         self.v_aug_alpha = np.random.uniform(0.5, 2.0)
-    #         obs = apply_blur_and_contrast(obs, self.v_aug_sigma, self.v_aug_alpha)
-    #
-    #     return obs, _
-    #
-    # def step(self, action):
-    #     obs, rew, terminated, truncated, info = self.omnigibson_env.step(action)
-    #
-    #     task_progression = self.recompute_task_progression(obs)
-    #
-    #     if "V-AUG" in self.active_perturbations:
-    #         obs = apply_blur_and_contrast(obs, self.v_aug_sigma, self.v_aug_alpha)
-    #
-    #     return obs, task_progression, terminated, truncated, info
 
     # ============================== [INIT HELPERS] ==============================
     def sample_objects(self, num_objects=3, included_categories=None, excluded_categories=None):
@@ -870,10 +744,10 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
         return sampled_objects
 
-    def replace_obj(self, obj: DatasetObject, included_categories=None, maximum_dim=0.1, fixed_base=False):
+    def replace_obj(self, env, obj: DatasetObject, included_categories=None, maximum_dim=0.1, fixed_base=False):
         obj_name = obj.name
 
-        self.omnigibson_env.scene.remove_object(obj)
+        env.scene.remove_object(obj)
         nobj_cfg = self.sample_objects(num_objects=1, included_categories=included_categories)[0]
         new_obj = DatasetObject(
             name=obj_name,
@@ -882,11 +756,12 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             model=nobj_cfg["model"],
             fixed_base=fixed_base
         )
-        self.omnigibson_env.scene.add_object(new_obj)
+        env.scene.add_object(new_obj)
 
+        env_idx = self.omnigibson_vector_env.envs.index(env)
 
-        new_obj.set_bbox_center_position_orientation(torch.tensor(self.init_poses[obj._relative_prim_path]["pos"]),
-                                                     torch.tensor(self.init_poses[obj._relative_prim_path]["rot"]))
+        new_obj.set_bbox_center_position_orientation(torch.tensor(self.init_poses[env_idx][obj._relative_prim_path]["pos"]),
+                                                     torch.tensor(self.init_poses[env_idx][obj._relative_prim_path]["rot"]))
 
         bbox_center, bbox_orn, bbox_extent, bbox_center_in_frame = new_obj.get_base_aligned_bbox()
         nobj_cfg["bounding_box"] = bbox_center

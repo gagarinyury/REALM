@@ -109,14 +109,13 @@ def evaluate(
     print(env.omnigibson_vector_env)
     for batch_env_idx in range(repeats // num_envs):
         observations, _ = env.reset(
-            env.omnigibson_vector_env,
             env.active_perturbations,
             None,  # self.realm_env.supported_pertrubations,
             env.config_path,
             env.scene_model,
             env.scene_part
         )
-        observations, rewards, terminates, truncates, infos = env.warmup(observations, env.omnigibson_vector_env, env.active_perturbations)
+        observations, rewards, terminates, truncates, infos = env.warmup(observations, env.active_perturbations)
 
         action_buffer = [Queue() for _ in range(num_envs)]
         instruction = env.instruction
@@ -152,7 +151,7 @@ def evaluate(
                 batched_actions.append(new_action)
 
             observations, rewards, terminates, truncates, infos = env.step(
-                np.array(batched_actions), env.omnigibson_vector_env, env.active_perturbations
+                np.array(batched_actions), env.active_perturbations
             )
 
             for idx, reward in enumerate(rewards):
