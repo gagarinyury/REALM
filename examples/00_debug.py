@@ -9,9 +9,10 @@ if __name__ == "__main__":
         perturbation_id=0,
         repeats=3,
         num_envs=3,
-        max_steps=45,
+        max_steps=30,
         model_type="debug",
-        port=8000
+        port=8000,
+        debug=True
     )
     og.shutdown()
     sys.exit(0)

@@ -42,7 +42,9 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         use_droid_with_base=True,
         common_freq: int = None,
         num_envs: int = 2,
+        debug=False
     ) -> None:
+        self.debug = debug
         self.use_droid_with_base = use_droid_with_base
         if self.use_droid_with_base:
             from realm.robots.franka_robotiq_mounted import FrankaPandaRobotiq
@@ -108,6 +110,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         if "SB-NOUN" in self.active_perturbations and self.task_type == "push":
             raise NotImplementedError()
 
+        #configs = [copy.deepcopy(cfg) for _ in range(self.num_envs)]
         self.omnigibson_vector_env = og.VectorEnvironment(num_envs=self.num_envs, config=cfg)
 
         self.instruction = self.cfg["instruction"]
@@ -181,7 +184,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         assert "pos" in scene_data and "rot" in scene_data
         robot_pos = scene_data['pos']
         robot_rot = [math.radians(angle_deg) for angle_deg in scene_data['rot']]
-        reset_joint_pos = np.zeros(11)
+        reset_joint_pos = np.zeros(9) # TODO: 11)
         if "reset_joint_pos" in comprehensive_cfg:
             reset_joint_pos[:7] = np.array(comprehensive_cfg['reset_joint_pos'])
         elif "reset_joint_pos" in scene_data:
@@ -190,7 +193,10 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             reset_joint_pos[:7] = np.array([0, -1 / 5 * np.pi, 0, -4 / 5 * np.pi, 0, 3 / 5 * np.pi, 0.0])
 
         print(reset_joint_pos)
-        cfg_robot = yaml.load(open(f"{self.config_path}/robots/franka_robotiq.yaml", "r"), Loader=yaml.FullLoader)
+        if self.debug:
+            cfg_robot = yaml.load(open(f"{self.config_path}/robots/franka.yaml", "r"), Loader=yaml.FullLoader)
+        else:
+            cfg_robot = yaml.load(open(f"{self.config_path}/robots/franka_robotiq.yaml", "r"), Loader=yaml.FullLoader)
         cfg_robot["robots"][0]["position"] = robot_pos
         cfg_robot["robots"][0]["orientation"] = omnigibson_transform_utils.euler2quat(
             torch.tensor(robot_rot, dtype=torch.float32)).tolist()

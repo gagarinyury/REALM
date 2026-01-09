@@ -78,6 +78,7 @@ def evaluate(
         model_type="pi0_FAST",
         port=8000,
         num_envs=1,
+        debug=False,
         rmgb_path=None,
         log_dir="/app/logs"
 ):
@@ -96,7 +97,8 @@ def evaluate(
         config_path=f"{rmgb_path}/realm/config",
         task=task,
         perturbations=perturbations,
-        num_envs=num_envs
+        num_envs=num_envs,
+        debug=debug
     )
 
     global_timestamp = datetime.datetime.now().strftime("%Y_%m_%d_%H:%M:%S")
@@ -106,7 +108,6 @@ def evaluate(
     task_progression = [0.0 for _ in range(repeats)]
     task_progression_timestamps = [[] for _ in range(repeats)]
 
-    print(env.omnigibson_vector_env)
     for batch_env_idx in range(repeats // num_envs):
         observations, _ = env.reset(
             env.active_perturbations,
@@ -141,7 +142,10 @@ def evaluate(
                     else:
                         action_buffer[env_idx].put(pred_action_chunk)
 
-                video_recorders[run_id].add_frame(base_im, wrist_im)
+                if debug:
+                    video_recorders[run_id].add_frame(base_im, base_im)
+                else:
+                    video_recorders[run_id].add_frame(base_im, wrist_im)
 
                 action = action_buffer[env_idx].get()
 
