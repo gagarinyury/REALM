@@ -89,15 +89,15 @@ class IndividualJointPDController(LocomotionController, ManipulationController, 
         # if self.time_tracker % gm.DEFAULT_SIM_STEP_FREQ != 0:
         #     return self.cached_torque
 
-        current_joint_pos = control_dict["joint_position"][self.dof_idx].to(og.sim.device)
-        current_joint_vel = control_dict["joint_velocity"][self.dof_idx].to(og.sim.device)
+        current_joint_pos = control_dict["joint_position"][self.dof_idx].to(og.sim.device).float()
+        current_joint_vel = control_dict["joint_velocity"][self.dof_idx].to(og.sim.device).float()
         # Assuming arm name is 0 and there is only one arm
-        jacobian = control_dict["eef_0_jacobian_relative"].to(og.sim.device)[:, :7]
+        jacobian = control_dict["eef_0_jacobian_relative"].to(og.sim.device)[:, :7].float()
 
         assert jacobian.shape == (6, 7)
 
-        joint_pos_desired = goal_dict["target_joint_pos"].to(og.sim.device)
-        joint_vel_desired = goal_dict["target_joint_vel"].to(og.sim.device)
+        joint_pos_desired = goal_dict["target_joint_pos"].to(og.sim.device).float()
+        joint_vel_desired = goal_dict["target_joint_vel"].to(og.sim.device).float()
 
         Kp = jacobian.T @ self.Kx @ jacobian + self.Kq
         Kd = jacobian.T @ self.Kxd @ jacobian + self.Kqd
@@ -108,7 +108,7 @@ class IndividualJointPDController(LocomotionController, ManipulationController, 
 
         # # Add Coriolis / centrifugal compensation
         if self._use_cc_compensation:
-            u += control_dict["cc_force"][self.dof_idx].to(og.sim.device)
+            u += control_dict["cc_force"][self.dof_idx].to(og.sim.device).float()
 
         return u
 
