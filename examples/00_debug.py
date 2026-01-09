@@ -1,6 +1,6 @@
 import sys
 import omnigibson as og
-from realm.eval import evaluate
+from realm.eval_vectorized import evaluate
 
 
 if __name__ == "__main__":

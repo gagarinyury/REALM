@@ -15,7 +15,7 @@ from realm.helpers import (calculate_new_camera_pose_mixed_rotations, add_rotati
 import omnigibson as og
 import omnigibson.utils.transform_utils as omnigibson_transform_utils
 import omnigibson.lazy as lazy
-from realm.environments.realm_environtment_base import RealmEnvironmentBase
+from realm.environments.realm_environment_base import RealmEnvironmentBase
 from omnigibson.objects import DatasetObject, PrimitiveObject, USDObject
 from omnigibson.utils.asset_utils import get_all_object_category_models
 from omnigibson.utils.asset_utils import get_all_object_models

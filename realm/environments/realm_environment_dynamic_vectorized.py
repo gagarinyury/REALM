@@ -6,15 +6,15 @@ import random
 import copy
 import os
 
-from rmgb_omni.robots.droid_joint_controller import IndividualJointPDController
-from rmgb_omni.robots.droid_gripper_controller import MultiFingerGripperController
-
-from rmgb_omni.environments.realm_environment_base import RealmEnvironmentBase
-from rmgb_omni.tasks.task_progressions import TASK_PROGRESSIONS
-from rmgb_omni.helpers import (calculate_new_camera_pose_mixed_rotations, add_rotation_noise,
-                               get_non_colliding_positions_for_objects,
-                               get_droid_categories,
-                               get_objects_by_names, get_default_objects_cfg)
+from realm.environments.task_progressions import TASK_PROGRESSIONS
+from realm.helpers import compute_rot_diff_magnitude, apply_blur_and_contrast
+from realm.robots.droid_joint_controller import IndividualJointPDController
+from realm.robots.droid_gripper_controller import MultiFingerGripperController
+from realm.environments.realm_environment_base_vectorized import RealmEnvironmentBase
+from realm.helpers import (calculate_new_camera_pose_mixed_rotations, add_rotation_noise,
+                           get_non_colliding_positions_for_objects_v2,
+                           get_non_droid_categories, get_droid_categories_by_theme,
+                           get_objects_by_names, get_default_objects_cfg)
 
 import omnigibson as og
 import omnigibson.utils.transform_utils as omnigibson_transform_utils
@@ -33,7 +33,7 @@ SUPPORTED_TASK_TYPES = ["put", "pick", "rotate", "push", "stack"]# TODO: "open_c
 class RealmEnvironmentDynamic(RealmEnvironmentBase):
     def __init__(
         self,
-        config_path="/app/rmgb_omni/config",
+        config_path="/app/realm/config",
         scene_model=None,
         scene_part=None,
         reset_qpos=None,
@@ -45,9 +45,9 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
     ) -> None:
         self.use_droid_with_base = use_droid_with_base # TODO: infer from task / scene config
         if self.use_droid_with_base:
-            from rmgb_omni.robots.franka_robotiq_mounted import FrankaPandaRobotiq
+            from realm.robots.franka_robotiq_mounted import FrankaPandaRobotiq
         else:
-            from rmgb_omni.robots.franka_robotiq import FrankaPandaRobotiq
+            from realm.robots.franka_robotiq import FrankaPandaRobotiq
 
         self.task = task
         self.config_path = config_path
@@ -245,7 +245,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             distractors = self.sample_objects(num_objects=num_distractors, excluded_categories=excluded_categories)
 
             # TODO: this placement algo is naive and super bad actually, improve this
-            cfg["objects"] = get_non_colliding_positions_for_objects(
+            cfg["objects"] = get_non_colliding_positions_for_objects_v2(
                     xmin=x_min,
                     xmax=x_max,
                     ymin=y_min,
@@ -472,7 +472,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                     obj.set_position_orientation(init_pos)
                     og.sim.play()
         else:
-            self.cfg["objects"] = get_non_colliding_positions_for_objects(
+            self.cfg["objects"] = get_non_colliding_positions_for_objects_v2(
                 xmin=self.spawn_bbox[0],
                 xmax=self.spawn_bbox[1],
                 ymin=self.spawn_bbox[2],
@@ -646,7 +646,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             obj_cfgs = copy.deepcopy(self.cfg["objects"])
             num_mo_to = len(obj_cfgs) - 1
 
-            self.cfg["objects"] = get_non_colliding_positions_for_objects(
+            self.cfg["objects"] = get_non_colliding_positions_for_objects_v2(
                 xmin=self.spawn_bbox[0],
                 xmax=self.spawn_bbox[1],
                 ymin=self.spawn_bbox[2],
@@ -830,7 +830,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
         # TODO: this can be pre-computed once, no need to parse the whole thing every call
         available_object_paths = []
-        whitelisted_categories = get_droid_categories()
+        whitelisted_categories = get_non_droid_categories()
 
         if included_categories is not None:
           whitelisted_categories = included_categories

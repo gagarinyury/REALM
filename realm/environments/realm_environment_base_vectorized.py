@@ -1,10 +1,10 @@
 import numpy as np
 import yaml
 
-from rmgb_omni.tasks.task_progressions import TASK_PROGRESSIONS
-from rmgb_omni.helpers import compute_rot_diff_magnitude, apply_blur_and_contrast
-from rmgb_omni.robots.droid_joint_controller import IndividualJointPDController
-from rmgb_omni.robots.droid_gripper_controller import MultiFingerGripperController
+from realm.environments.task_progressions import TASK_PROGRESSIONS
+from realm.helpers import compute_rot_diff_magnitude, apply_blur_and_contrast
+from realm.robots.droid_joint_controller import IndividualJointPDController
+from realm.robots.droid_gripper_controller import MultiFingerGripperController
 import omnigibson as og
 import omnigibson.lazy as lazy
 from omnigibson.object_states.contact_bodies import ContactBodies
