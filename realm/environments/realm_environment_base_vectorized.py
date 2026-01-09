@@ -1,5 +1,6 @@
 import numpy as np
 import yaml
+import torch
 
 from realm.environments.task_progressions import TASK_PROGRESSIONS
 from realm.helpers import compute_rot_diff_magnitude, apply_blur_and_contrast
@@ -31,14 +32,15 @@ class RealmEnvironmentBase:
         mo_cfgs
     ):
         self.env = og_vec_env
+        print("DEBUG:", self.env)
         self.use_droid_with_base = use_droid_with_base
 
         self.main_objects = main_objects
         self.target_objects = target_objects
 
-        self.mo_pos_orig = np.array(mo_cfgs[0]["position"])
-        self.mo_rot_orig = np.array(mo_cfgs[0]["orientation"] if "orientation" in mo_cfgs[0] else [0, 0, 0, 1])
-        self.mo_bbox_orig = np.array(mo_cfgs[0]["bounding_box"])
+        self.mo_pos_orig = np.array([c["position"] for c in mo_cfgs])
+        self.mo_rot_orig = np.array([c["orientation"] if "orientation" in c else [0, 0, 0, 1] for c in mo_cfgs])
+        self.mo_bbox_orig = np.array([c["bounding_box"] for c in mo_cfgs])
 
         self.task = task
         self.task_type = task_type
@@ -120,9 +122,19 @@ class RealmEnvironmentBase:
                 joint_prim.GetAttribute("physxJoint:jointFriction").Set(friction[idx])
                 joint_prim.GetAttribute("physxJoint:armature").Set(armature[idx])
 
-    def reset(self, active_perturbations, supported_perturbations, config_path, scene_model, scene_part):
-        obs, _ = self.env.reset()
+    def reset(self, active_perturbations, supported_perturbations, config_path, scene_model, scene_part, reset_qpos):
+        reset_output = self.env.reset()
+        if reset_output is None:
+            num_envs = self.env.num_envs
+            #no_op_action = np.tile(np.append(reset_qpos[:7], -1), (num_envs, 1))
+            no_op_action = torch.as_tensor(np.append(reset_qpos[:7], -1)).repeat(num_envs, 1).float()
+            obs, _, _, _, _ = self.env.step(no_op_action)
+            _ = {}
+        else:
+            obs, _ = reset_output
+
         self.apply_scene_fixes_from_cfg(config_path, scene_model, scene_part)
+        #self.disable_visual_toggles() # TODO: turn this back on
 
         self.was_lifted = False
         if self.task_progression is not None:
@@ -167,7 +179,7 @@ class RealmEnvironmentBase:
                 is_gripper_closed = not is_gripper_closed
             new_batched_action[:, -1] = 1 if is_gripper_closed else -1
 
-            obs, rew, terminated, truncated, info = self.step(new_batched_action, active_perturbations)
+            obs, rew, terminated, truncated, info = self.step(torch.as_tensor(new_batched_action).float(), active_perturbations)
 
         self.mo_pos_orig = np.array([mo[0].get_position_orientation()[0] for mo in self.main_objects])
         self.mo_rot_orig = np.array([mo[0].get_position_orientation()[1] for mo in self.main_objects])
@@ -280,7 +292,7 @@ class RealmEnvironmentBase:
 
     def check_rotated(self, obs, rot_threshold=1.1):
         mo_rot_curr = np.array([mo[0].get_position_orientation()[1] for mo in self.main_objects])
-        mo_rot_orig = np.array([self.mo_rot_orig for _ in range(len(mo_rot_curr))])
+        mo_rot_orig = self.mo_rot_orig
         rot_diff = np.array([compute_rot_diff_magnitude(orig, curr) for orig, curr in zip(mo_rot_orig, mo_rot_curr)])
         return np.abs(rot_diff) > rot_threshold
 

@@ -5,10 +5,11 @@ from realm.eval_vectorized import evaluate
 
 if __name__ == "__main__":
     evaluate(
-        task_id=1,
+        task_id=6,
         perturbation_id=0,
-        repeats=1,
-        max_steps=15,
+        repeats=3,
+        num_envs=3,
+        max_steps=45,
         model_type="debug",
         port=8000
     )

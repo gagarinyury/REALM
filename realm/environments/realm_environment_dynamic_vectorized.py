@@ -103,6 +103,8 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
         self.task_type = self.cfg["task_type"]
 
+        # TODO: move this to some compatibility matrix / exclusion list
+        # assert self.task_type in SUPPORTED_TASK_TYPES, (self.task_type, SUPPORTED_TASK_TYPES)
         if "SB-NOUN" in self.active_perturbations and self.task_type == "push":
             raise NotImplementedError()
 
@@ -125,9 +127,6 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         self.robots = [env.robots[0] for env in self.omnigibson_vector_env.envs]
         self.friction = np.array([0.05, 0.10, 0.05, 0.10, 0.75, 0.425, 0.20])
         self.armature = np.array([0.25, 0.50, 0.25, 0.50, 0.25, 0.150, 0.00])
-        self.update_robot_physics(self.omnigibson_vector_env, self.friction, self.armature)
-        self.apply_scene_fixes_from_cfg(self.config_path, self.scene_model, self.scene_part)
-        self.disable_visual_toggles()
 
         super().__init__(
             og_vec_env=self.omnigibson_vector_env,
@@ -139,6 +138,10 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             use_droid_with_base=use_droid_with_base,
             mo_cfgs=test_mo_cfg
         )
+
+        self.update_robot_physics(self.friction, self.armature)
+        self.apply_scene_fixes_from_cfg(self.config_path, self.scene_model, self.scene_part)
+        self.disable_visual_toggles()
 
     def construct_environment_config(self):
         cfg = dict()
@@ -224,6 +227,8 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                     obj["relative_bbox_position"][0] += obj_pos_modifier_x * (x_max - x_min)
             obj["position"] = [x + y for x, y in zip(obj["relative_bbox_position"], [x_min, y_min, z])]
 
+        # TODO: the pipeline is broken for dynamically reducing # objects when there are too many distractors and
+        # they become unplaceable - 3 is always fine and easy to place so we use that for now as maximum
         num_distractors = 3 if any(p in self.active_perturbations for p in ["V-SC"]) else 0 #"VB-ISC" #"SB-NOUN"
         cfg["objects"] = None
         distractors = []
@@ -235,6 +240,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                     excluded_categories.append(obj["category"])
             distractors = self.sample_objects(num_objects=num_distractors, excluded_categories=excluded_categories)
 
+            # TODO: this placement algo is naive and super bad actually, improve this
             cfg["objects"] = get_non_colliding_positions_for_objects_v2(
                     xmin=x_min,
                     xmax=x_max,
@@ -306,7 +312,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
     def v_light(self, intensity=None):
 
 
-        def find_lights_recursive(obj):
+        def find_lights_recursive(obj): # TODO: move the search to new scene instantiation, pointless to call it everytime unless we are swapping scene
             lights = []
             if "light" in obj.name:
                 lights.append(obj)
@@ -327,7 +333,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
             col_mean = np.array([255, 214, 170])
             col_std = 15
-            world_path = f"/World/scene_{idx}"
+            world_path = f"/World/scene_{idx}" # TODO: is this atrue for vectorized envs?
             for light in all_lights:
                 light_prim_path = world_path + light._relative_prim_path + "/light_0"
                 light_prim = lazy.omni.isaac.core.utils.prims.get_prim_at_path(light_prim_path)
@@ -359,6 +365,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
             return cam_pos, cam_orientation
 
+        # TODO: in some cases, the objects are not fully visible - add a look_at or similar to minimize these cases
         og.sim.stop()
         for idx, env in enumerate(self.omnigibson_vector_env.envs):
             for i in range(len(env.external_sensors)):

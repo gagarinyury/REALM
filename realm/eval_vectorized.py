@@ -53,7 +53,7 @@ def set_sim_config():
     gm.ENABLE_OBJECT_STATES = True # this needs to be on because push_switch task usees the ToggledOn state
 
     # gm.USE_GPU_DYNAMICS = False
-    # gm.ENABLE_HQ_RENDERING = True  # True
+    # gm.ENABLE_HQ_RENDERING = True
     # gm.ENABLE_FLATCACHE = True
     # gm.HEADLESS = headless
     # gm.USE_NUMPY_CONTROLLER_BACKEND = False
@@ -102,7 +102,7 @@ def evaluate(
     global_timestamp = datetime.datetime.now().strftime("%Y_%m_%d_%H:%M:%S")
     results = []
 
-    video_recorders = [VideoRecorder(log_dir, global_timestamp, repeats) for _ in range(repeats)]
+    video_recorders = [VideoRecorder(log_dir, global_timestamp, i) for i in range(repeats)]
     task_progression = [0.0 for _ in range(repeats)]
     task_progression_timestamps = [[] for _ in range(repeats)]
 
@@ -113,7 +113,8 @@ def evaluate(
             None,  # self.realm_env.supported_pertrubations,
             env.config_path,
             env.scene_model,
-            env.scene_part
+            env.scene_part,
+            env.reset_qpos
         )
         observations, rewards, terminates, truncates, infos = env.warmup(observations, env.active_perturbations)
 
@@ -151,7 +152,7 @@ def evaluate(
                 batched_actions.append(new_action)
 
             observations, rewards, terminates, truncates, infos = env.step(
-                np.array(batched_actions), env.active_perturbations
+                torch.as_tensor(np.array(batched_actions)), env.active_perturbations
             )
 
             for idx, reward in enumerate(rewards):
