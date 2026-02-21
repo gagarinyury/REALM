@@ -1,6 +1,7 @@
 import numpy as np
 from PIL import Image
 from openpi_client import websocket_client_policy, image_tools
+from gr00t_client import server_client
 import omnigibson as og
 
 
@@ -18,7 +19,13 @@ class InferenceClient:
     def __init__(self, model_type, port, host="localhost"):
         self.model_type = model_type
         self.client = None
-        if model_type != "debug":
+        if model_type == "debug":
+            pass
+        elif model_type == "groot_n16":
+            og.log.info("Connecting to GR00T N16 server...")
+            self.client = server_client.PolicyClient(host=host, port=port)
+            og.log.info("Connected!")
+        else:
              og.log.info("Connecting to server...")
              self.client = websocket_client_policy.WebsocketClientPolicy(
                 host=host,
@@ -30,6 +37,23 @@ class InferenceClient:
         if self.model_type == "debug":
             pred_action_chunk = np.atleast_1d(np.zeros(8))
             return pred_action_chunk
+
+        if self.model_type == "groot_n16":
+            base_im_resized = np.asarray(Image.fromarray(base_im).resize((320, 180))).astype(np.uint8)
+            wrist_im_resized = np.asarray(Image.fromarray(wrist_im).resize((320, 180))).astype(np.uint8)
+
+            obs_dict = {
+                "video.exterior_image_1_left": base_im_resized[None, None],  # (1, 1, H, W, 3)
+                "video.wrist_image_left": wrist_im_resized[None, None],  # (1, 1, H, W, 3)
+                "state.joint_position": np.array(robot_state).astype(np.float32).reshape(1, 1, 7),
+                "state.gripper_position": np.atleast_1d(np.array(gripper_state)).astype(np.float32).reshape(1, 1, 1),
+                "annotation.language.language_instruction": [instruction],
+            }
+            pred, _ = self.client.get_action(obs_dict)
+            pred_action_chunk = np.concatenate(
+                [pred["action.joint_position"],
+                 pred["action.gripper_position"]], axis=-1)  # (1, 32, 8)
+            return pred_action_chunk[0]  # (32, 8)
 
         if self.model_type == "GR00T":
             base_im_resized = np.asarray(Image.fromarray(base_im).resize((320, 180))).astype(np.uint8)

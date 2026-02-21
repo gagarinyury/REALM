@@ -12,9 +12,11 @@ ENV OMNIGIBSON_DATASET_PATH=/data/og_dataset \
 
 COPY realm/misc/modified_entity_prim.py /opt/modified_entity_prim.py
 COPY packages/openpi-client /opt/openpi-client
+COPY packages/gr00t-client /opt/gr00t-client
 
 RUN micromamba install -n omnigibson -y -c conda-forge wandb moviepy && \
     micromamba run -n omnigibson pip install /opt/openpi-client && \
+    micromamba run -n omnigibson pip install /opt/gr00t-client && \
     cp /opt/modified_entity_prim.py /omnigibson-src/omnigibson/prims/entity_prim.py && \
     rm /opt/modified_entity_prim.py
 

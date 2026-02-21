@@ -4,6 +4,7 @@ From: stanfordvl/omnigibson:1.1.1
 %files
     realm/misc/modified_entity_prim.py /opt/modified_entity_prim.py
     packages/openpi-client /opt/openpi-client
+    packages/gr00t-client /opt/gr00t-client
 
 %post
     rm -rf /isaac-sim/exts/omni.pip.cloud/pip_prebundle/typing_extensions*
@@ -13,6 +14,7 @@ From: stanfordvl/omnigibson:1.1.1
         export MAMBA_ROOT_PREFIX="/micromamba"
         micromamba install -n omnigibson -y -c conda-forge "pydantic=2.8.0" moviepy
         micromamba run -n omnigibson pip install /opt/openpi-client
+        micromamba run -n omnigibson pip install /opt/gr00t-client
         micromamba run -n omnigibson pip install --default-timeout=1000 --retries 10 \
             "lxml==4.9.4" \
             "imageio==2.33.1" \

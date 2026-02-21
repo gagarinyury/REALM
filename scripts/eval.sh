@@ -50,7 +50,7 @@ Rest of options:
   -s, --max-steps N          Max steps per episode before termination. Default: 500
 
   -m, --model MODEL          Either:
-                               - one of: pi0 | pi0_FAST | GR00T
+                               - one of: pi0 | pi0_FAST | GR00T | groot_n16
                                - or path to an executable script that starts a model server
                              Default: pi0
 
@@ -206,7 +206,7 @@ case "$EVAL_ENV" in
 esac
 
 case "$MODEL" in
-    pi0|pi0_FAST|GR00T)
+    pi0|pi0_FAST|GR00T|groot_n16)
         ;;
     *)
         echo "$MODEL is not in (pi0|pi0_FAST|GR00T). Assuming that it is an executable file."
@@ -554,6 +554,22 @@ elif [ "$MODEL" == "GR00T" ]; then
         --port=$PORT \
         --model_path "$CKPT_PATH"  \
         --data-config droid_joint_pos & SERVER_PID=$!
+
+    # capture process group of the server
+    SERVER_PGID="$SERVER_PID"
+elif [ "$MODEL" == "groot_n16" ]; then
+    if [[ -z "${GR00T_N16_ROOT:-}" ]]; then
+        echo "GR00T_N16_ROOT is not set."
+        echo "Set it to the GR00T N16 root to use, e.g.:"
+        echo "  export GR00T_N16_ROOT=\"/path/to/the/GR00T-N16\""
+        exit 1
+    fi
+    cd "$GR00T_N16_ROOT"
+    setsid uv run python gr00t/eval/run_gr00t_server.py \
+        --port=$PORT \
+        --embodiment-tag OXE_DROID \
+        --use_sim_policy_wrapper \
+        --model-path "$CKPT_PATH" & SERVER_PID=$!
 
     # capture process group of the server
     SERVER_PGID="$SERVER_PID"
