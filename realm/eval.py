@@ -91,6 +91,7 @@ def evaluate(
         no_record=False,
         no_render=False,
         rendering_mode=None,
+        spp=8,
         task_cfg_path=None,
         robot="DROID"
 ):
@@ -125,6 +126,7 @@ def evaluate(
         multi_view=multi_view,
         no_rendering=no_render,
         rendering_mode=rendering_mode,
+        spp=spp,
         robot=robot
     )
     og.log.info(f"DEBUG: Env created: {time.perf_counter() - start:.4f}s")

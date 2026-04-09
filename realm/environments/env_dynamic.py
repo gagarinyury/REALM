@@ -2,7 +2,6 @@ import math
 import numpy as np
 import torch
 import yaml
-import random
 import copy
 import os
 
@@ -22,13 +21,9 @@ from realm.robots.widowx import WidowX
 from realm.robots.ur import UR
 from realm.helpers import (
     calculate_new_camera_pose_mixed_rotations,
-    add_rotation_noise,
     get_non_colliding_positions_for_objects,
     apply_blur_and_contrast,
     get_non_droid_categories,
-    get_droid_categories_by_theme,
-    get_objects_by_names,
-    get_default_objects_cfg,
     robot_to_world,
     world_to_robot,
 )
@@ -36,11 +31,9 @@ from realm.helpers import (
 import omnigibson as og
 import omnigibson.utils.transform_utils as omnigibson_transform_utils
 import omnigibson.lazy as lazy
-from omnigibson.objects import DatasetObject, PrimitiveObject, USDObject
-from omnigibson.utils.asset_utils import get_all_object_category_models
+from omnigibson.objects import DatasetObject
 from omnigibson.utils.asset_utils import get_all_object_models
 from omnigibson.utils.usd_utils import create_joint
-from omnigibson.prims.joint_prim import JointPrim
 from scipy.spatial.transform import Rotation as R
 
 
@@ -111,7 +104,7 @@ def _panda_fk(q):
     return m[:3, 3].copy(), _R.from_matrix(m[:3, :3]).as_quat()
 
 
-def set_rendering_mode(rendering_mode):
+def set_rendering_mode(rendering_mode, spp=8):
     carb_settings = lazy.carb.settings.get_settings()
     if rendering_mode == "pt":
         def enable_interactive_path_tracing(carb_settings, samples_per_pixel=8):
@@ -125,7 +118,7 @@ def set_rendering_mode(rendering_mode):
             carb_settings.set_bool("/rtx/pathtracing/optixDenoiser/enabled", True)
 
         #carb_settings.set("/persistent/omnihydra/useSceneGraphInstancing", True)
-        enable_interactive_path_tracing(carb_settings, samples_per_pixel=8)
+        enable_interactive_path_tracing(carb_settings, samples_per_pixel=spp)
     elif rendering_mode == "r":
         carb_settings.set_string("/rtx/rendermode", "RaytracedLighting")
         carb_settings.set_bool("/rtx/translucency/enabled", True)
@@ -158,6 +151,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         no_rendering: bool = False,
         multi_view: bool = False,
         rendering_mode: str = "rt",
+        spp: int = 8,
         robot: str = "DROID"
     ) -> None:
         assert not (multi_view and no_rendering), f"Multi-view rendering was enabled during no_rendering mode. Either one is likely a mistake."
@@ -167,6 +161,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         self.multi_view = multi_view
         self.no_rendering = no_rendering
         self.rendering_mode = rendering_mode
+        self.spp = spp
         self.config_path = config_path
         self.scene_model = scene_model
         self.scene_part = scene_part
@@ -248,7 +243,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         self.update_robot_physics()
         self.apply_scene_fixes_from_cfg()
         self.disable_visual_toggles()
-        set_rendering_mode(rendering_mode)
+        set_rendering_mode(rendering_mode, spp=self.spp)
 
         super().__init__(
             main_objects=self.main_objects,

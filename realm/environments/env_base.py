@@ -10,11 +10,7 @@ from realm.robots.droid_ee_controller import DroidEndEffectorController
 import omnigibson as og
 from omnigibson.object_states.contact_bodies import ContactBodies
 from omnigibson.controllers import REGISTERED_CONTROLLERS
-from omnigibson.object_states.open_state import _get_relevant_joints
-from omnigibson.utils.object_utils import compute_base_aligned_bboxes, compute_bbox_offset
-from omnigibson.prims.joint_prim import JointPrim, JointType
-from omnigibson.prims.rigid_prim import RigidPrim
-from omnigibson.objects.dataset_object import DatasetObject
+from omnigibson.prims.joint_prim import JointPrim
 
 
 REGISTERED_CONTROLLERS["IndividualJointPDController"] = IndividualJointPDController

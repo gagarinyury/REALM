@@ -1,6 +1,5 @@
 import torch as th
 from omnigibson.controllers.controller_base import (
-    BaseController,
     ControlType,
     GripperController,
     IsGraspingState,
@@ -9,8 +8,6 @@ from omnigibson.controllers.controller_base import (
 )
 from omnigibson.utils.ui_utils import create_module_logger
 import omnigibson as og  # For og.sim.device
-from omnigibson.macros import gm
-import numpy as np
 
 # Create module logger
 log = create_module_logger(module_name=__name__)

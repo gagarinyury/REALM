@@ -7,11 +7,11 @@ from openpi_client import websocket_client_policy, image_tools
 from realm.helpers import axisangle_to_rpy
 #from realm.inference.base import ExternalRobotInferenceClient
 #from realm.inference.hamster import HamsterClient
-#from realm.inference.dreamzero import DreamZeroClient
+from realm.inference.dreamzero import DreamZeroClient
 
 
 class InferenceClient:
-    def __init__(self, model_type, port, host="127.0.0.1", timeout=150.0):
+    def __init__(self, model_type, port, host="127.0.0.1"):
         self.model_type = model_type
         self.host = host
         self.port = port
@@ -19,9 +19,11 @@ class InferenceClient:
         #     self.client = ExternalRobotInferenceClient(host=self.host, port=self.port)
         # elif model_type == "hamster":
         #     self.client = HamsterClient(host=self.host, port=self.port)
-        # elif model_type == "dreamzero":
-        #     self.client = DreamZeroClient(host=self.host, port=self.port)
-        if model_type == "openpi":
+        if model_type == "dreamzero":
+            self.client = DreamZeroClient(host=self.host, port=5000)
+            #self.client = DreamZeroClient(host="192.168.0.1", port=5000)
+            #self.client = DreamZeroClient(host=self.host, port=self.port)
+        elif model_type == "openpi":
             og.log.info("Connecting to server...")
             self.client = websocket_client_policy.WebsocketClientPolicy(
                 host=host,

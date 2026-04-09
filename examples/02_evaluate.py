@@ -20,6 +20,7 @@ if __name__ == "__main__":
     parser.add_argument('--run_id', type=str, required=False, default=None)
     parser.add_argument('--log_dir', type=str, required=False, default=None)
     parser.add_argument('--rendering_mode', type=str, required=False, default=None, help='Omnigibson rendering mode (pt, rt, r)')
+    parser.add_argument('--spp', type=int, required=False, default=8, help='Samples per pixel for pt rendering mode')
     parser.add_argument('--multi-view', action='store_true', help='Enable second external camera')
     parser.add_argument('--resume', action='store_true', help='Resume from existing run report if found')
     parser.add_argument('--no_record', action='store_true', help='Do not record videos from runs.')
@@ -52,6 +53,7 @@ if __name__ == "__main__":
         no_record=args.no_record,
         no_render=args.no_render,
         rendering_mode=args.rendering_mode,
+        spp=args.spp,
         task_cfg_path=args.task_cfg_path,
         robot=args.robot
     )

@@ -3,10 +3,8 @@ import numpy as np
 import torch
 from scipy.spatial.transform import Rotation
 import omnigibson as og
-from omnigibson import log
 from omnigibson.scenes.interactive_traversable_scene import InteractiveTraversableScene
 from omnigibson.objects import DatasetObject
-from omnigibson.utils.asset_utils import get_all_object_category_models
 import yaml
 import os
 import copy

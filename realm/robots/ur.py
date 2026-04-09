@@ -3,7 +3,6 @@ import torch as th
 
 from omnigibson.macros import gm
 from omnigibson.robots.manipulation_robot import GraspingPoint, ManipulationRobot
-from omnigibson.utils.transform_utils import euler2quat
 
 
 class UR(ManipulationRobot):

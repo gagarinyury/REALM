@@ -1,7 +1,5 @@
 import torch as th
-import math
 from omnigibson.controllers.controller_base import (
-    BaseController,
     ControlType,
     GripperController,
     IsGraspingState,
@@ -10,10 +8,7 @@ from omnigibson.controllers.controller_base import (
 )
 from omnigibson.utils.ui_utils import create_module_logger
 import omnigibson as og  # For og.sim.device
-from omnigibson.macros import gm
 #import pinocchio as pin
-import numpy as np
-import os
 
 
 # Create module logger
