@@ -4,10 +4,10 @@ import sys
 
 if __name__ == "__main__":
     evaluate(
-        task_id=8,
+        task_id=10,
         perturbation_id=0,
         repeats=1,
-        max_steps=500,
+        max_steps=5000000,
         model_type="debug",
         port=0,
         log_dir="/app/logs/debug",

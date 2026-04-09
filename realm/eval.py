@@ -28,6 +28,7 @@ SUPPORTED_TASKS = [
     "push_switch", #7
     "open_drawer", #8
     "close_drawer", #9
+    "pour_from_bottle" #10
 ]
 
 SUPPORTED_PERTURBATIONS = [
