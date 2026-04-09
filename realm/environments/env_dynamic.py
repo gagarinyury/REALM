@@ -5,7 +5,7 @@ import yaml
 import copy
 import os
 
-from realm.environments.env_base import RealmEnvironmentBase, TASK_PROGRESS_RUBRICS
+from realm.environments.env_base import RealmEnvironmentBase
 from realm.environments.perturbations.default import default as _pert_default
 from realm.environments.perturbations.v_light import v_light as _pert_v_light
 from realm.environments.perturbations.v_view import v_view as _pert_v_view
@@ -17,8 +17,8 @@ from realm.environments.perturbations.sb_vrb import sb_vrb as _pert_sb_vrb
 from realm.environments.perturbations.vb_pose import vb_pose as _pert_vb_pose
 from realm.environments.perturbations.vb_mobj import vb_mobj as _pert_vb_mobj
 from realm.environments.perturbations.vsb_nobj import vsb_nobj as _pert_vsb_nobj
-from realm.robots.widowx import WidowX
-from realm.robots.ur import UR
+from realm.robots.widowx import WidowX  # noqa: F401  # OmniGibson registration import
+from realm.robots.ur import UR  # noqa: F401  # OmniGibson registration import
 from realm.helpers import (
     calculate_new_camera_pose_mixed_rotations,
     get_non_colliding_positions_for_objects,
@@ -191,9 +191,9 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             assert perturbation in self.supported_pertrubations.keys()
 
         if self.use_droid_with_base:
-            from realm.robots.droid_arm_mounted import DROID
+            from realm.robots.droid_arm_mounted import DROID  # noqa: F401  # OmniGibson registration import
         else:
-            from realm.robots.droid_arm import DROID
+            from realm.robots.droid_arm import DROID  # noqa: F401  # OmniGibson registration import
 
         camera_extrinsics_path = f"{self.config_path}/env/external_sensors/camera_extrinsics.yaml"
         self.cfg_camera_extrinsics = yaml.load(open(camera_extrinsics_path, "r"), Loader=yaml.FullLoader)
