@@ -14,6 +14,7 @@ from omnigibson.macros import gm
 from realm.environments.env_dynamic import RealmEnvironmentDynamic
 from realm.inference import InferenceClient, extract_from_obs
 from realm.realm_logging import VideoRecorder, save_results, append_trajectory, append_video
+from realm.helpers import apply_blur_and_contrast
 
 
 
@@ -50,7 +51,7 @@ SUPPORTED_PERTURBATIONS = [
 ]
 
 
-def set_sim_config(rendering_mode=None, robot="DROID"):
+def set_sim_config(rendering_mode=None, robot="DROID", og_lite=False):
     if robot == "WidowX": # TODO: just read this from the yamls...
         gm.DEFAULT_SIM_STEP_FREQ = 5
         gm.DEFAULT_RENDERING_FREQ = 5
@@ -66,6 +67,12 @@ def set_sim_config(rendering_mode=None, robot="DROID"):
     gm.ENABLE_OBJECT_STATES = True # this needs to be on because push_switch task usees the ToggledOn state
     gm.RENDER_VIEWER_CAMERA=False
     gm.ENABLE_HQ_RENDERING = False if rendering_mode == "r" else True
+
+    if og_lite:
+        # Physics-only stepping; render only on explicit render_obs() calls
+        gm.ENABLE_VISUAL_UPDATES = False
+        gm.OBJECT_STATE_UPDATE_WHITELIST = ["ToggledOn"]
+        gm.RENDER_ON_STEP = False
 
     seed = 1234
     random.seed(seed)
@@ -93,13 +100,14 @@ def evaluate(
         rendering_mode=None,
         spp=8,
         task_cfg_path=None,
-        robot="DROID"
+        robot="DROID",
+        og_lite=False,
 ):
     start = time.perf_counter()
     og.log.info(f"DEBUG: Begin eval: {time.perf_counter() - start:.4f}s")
     if rendering_mode is None:
         rendering_mode = "rt"
-    set_sim_config(rendering_mode=rendering_mode, robot=robot)
+    set_sim_config(rendering_mode=rendering_mode, robot=robot, og_lite=og_lite)
 
     # -------------------- Create the environment + client --------------------
     if task_cfg_path is None:
@@ -184,37 +192,50 @@ def evaluate(
         was_grasping = False
 
         while t < max_steps and terminal_steps > 0:
-            base_im, base_depth, base_im_second, base_depth_second, wrist_im, robot_state, gripper_state = extract_from_obs(obs, robot_name=env.robot.name)
+            need_new_chunk = action_buffer.empty()
 
-            # Metrics collection
+            # On-demand rendering (og_lite): refresh obs only when starting a new action chunk.
+            # Without og_lite, obs comes from the previous env.step() call as before.
+            if og_lite and need_new_chunk:
+                obs, _ = env.omnigibson_env.render_obs()
+                if "V-AUG" in env.active_perturbations:
+                    obs = apply_blur_and_contrast(obs, env.v_aug_sigma, env.v_aug_alpha)
+
+            # Observation extraction and obs-dependent metrics: only when obs is fresh.
+            # In og_lite mode obs is only valid at chunk boundaries; in normal mode it is
+            # refreshed every step by env.step().
+            if not og_lite or need_new_chunk:
+                base_im, base_depth, base_im_second, base_depth_second, wrist_im, robot_state, gripper_state = extract_from_obs(obs, robot_name=env.robot.name)
+
+                is_self_col, is_env_col = env.check_collisions()
+                if is_self_col and not is_self_col_active:
+                    collisions_self += 1
+                is_self_col_active = is_self_col
+
+                if is_env_col and not is_env_col_active:
+                    collisions_env += 1
+                is_env_col_active = is_env_col
+
+                is_grasping = env.check_grasp_condition(obs)
+                if was_grasping and not is_grasping:
+                    is_placed = False
+                    if hasattr(env, "task_type") and env.task_type in ["put", "stack"] and len(env.target_objects) > 0:
+                        mo = env.main_objects[0]
+                        target = env.target_objects[0]
+                        inside = mo.states[og.object_states.Inside].get_value(target)
+                        on_top = mo.states[og.object_states.OnTop].get_value(target)
+                        if inside or on_top:
+                            is_placed = True
+
+                    if not is_placed:
+                        drops += 1
+                was_grasping = is_grasping
+
+            # Cartesian metrics: ee_pose is cheap (reads physics, no render needed)
             ee_pos, ee_rot = env.get_ee_pose()
             ee_poses.append(ee_pos)
 
-            is_self_col, is_env_col = env.check_collisions()
-            if is_self_col and not is_self_col_active:
-                collisions_self += 1
-            is_self_col_active = is_self_col
-
-            if is_env_col and not is_env_col_active:
-                collisions_env += 1
-            is_env_col_active = is_env_col
-
-            is_grasping = env.check_grasp_condition(obs)
-            if was_grasping and not is_grasping:
-                is_placed = False
-                if hasattr(env, "task_type") and env.task_type in ["put", "stack"] and len(env.target_objects) > 0:
-                    mo = env.main_objects[0]
-                    target = env.target_objects[0]
-                    inside = mo.states[og.object_states.Inside].get_value(target)
-                    on_top = mo.states[og.object_states.OnTop].get_value(target)
-                    if inside or on_top:
-                        is_placed = True
-
-                if not is_placed:
-                    drops += 1
-            was_grasping = is_grasping
-
-            if action_buffer.empty():
+            if need_new_chunk:
                 # Compute robot-relative cartesian position for models that need it (e.g. DreamZero)
                 _ee_pos = ee_pos.cpu().numpy() if hasattr(ee_pos, 'cpu') else np.array(ee_pos)
                 _ee_rot = ee_rot.cpu().numpy() if hasattr(ee_rot, 'cpu') else np.array(ee_rot)
@@ -238,10 +259,17 @@ def evaluate(
                 else:
                     assert len(pred_action_chunk.shape) <= 2, f"Unsupported number of dimensions in action chunk with shape: {pred_action_chunk.shape}. The chunk is expected to be 2D."
 
-            if not no_record:
+            # Video: in og_lite mode record one frame per chunk (at render point)
+            if not no_record and (not og_lite or need_new_chunk):
                 video_recorder.add_frame(base_im, wrist_im, base_im_second)
 
-            qpos.append(np.concatenate((robot_state, np.atleast_1d(np.array(gripper_state)))))
+            # qpos: in og_lite mode read fresh joint positions directly from physics
+            if og_lite:
+                fresh_proprio, _ = env.robot.get_proprioception()
+                fresh_proprio_np = fresh_proprio.cpu().numpy()
+                qpos.append(np.concatenate((fresh_proprio_np[:7], np.atleast_1d(np.array(fresh_proprio_np[7] / 0.05)))))
+            else:
+                qpos.append(np.concatenate((robot_state, np.atleast_1d(np.array(gripper_state)))))
 
             action = action_buffer.get()
             actions.append(action)
@@ -259,7 +287,13 @@ def evaluate(
             # new_gripper_state = np.atleast_1d(np.array(new_gripper_state))
             # new_action = np.concatenate((new_action, new_gripper_state))
 
-            obs, curr_task_progression, terminated, truncated, info = env.step(new_action)
+            if og_lite:
+                env.omnigibson_env.step_blind(new_action)
+                # Task progression is computed from the rendered obs at the start of each chunk;
+                # carry the last known value for blind intermediate steps.
+                curr_task_progression = env.recompute_task_progression(obs) if need_new_chunk else task_progression
+            else:
+                obs, curr_task_progression, terminated, truncated, info = env.step(new_action)
 
             if curr_task_progression > task_progression:
                 task_progression = curr_task_progression

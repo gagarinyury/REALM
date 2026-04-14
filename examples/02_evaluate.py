@@ -26,6 +26,7 @@ if __name__ == "__main__":
     parser.add_argument('--no_record', action='store_true', help='Do not record videos from runs.')
     parser.add_argument('--no_render', action='store_true', help='Disable rendering completely')
     parser.add_argument('--robot', type=str, required=False, default="DROID", help='Robot type')
+    parser.add_argument('--og_lite', action='store_true', help='Enable OG-lite on-demand rendering (render only when a new action chunk is needed, physics-only steps in between)')
     args = parser.parse_args()
 
     assert args.model_name is not None
@@ -55,7 +56,8 @@ if __name__ == "__main__":
         rendering_mode=args.rendering_mode,
         spp=args.spp,
         task_cfg_path=args.task_cfg_path,
-        robot=args.robot
+        robot=args.robot,
+        og_lite=args.og_lite,
     )
     og.shutdown()
     sys.exit(0)
