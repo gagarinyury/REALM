@@ -20,7 +20,7 @@ class InferenceClient:
         # elif model_type == "hamster":
         #     self.client = HamsterClient(host=self.host, port=self.port)
         if model_type == "dreamzero":
-            self.client = DreamZeroClient(host=self.host, port=5000)
+            self.client = DreamZeroClient(host=self.host, port=self.port)
             #self.client = DreamZeroClient(host="192.168.0.1", port=5000)
             #self.client = DreamZeroClient(host=self.host, port=self.port)
         elif model_type == "openpi":

@@ -18,6 +18,7 @@ RESUME_FLAG=""
 TASK_CFG_PATH=""
 NO_RENDER_FLAG=""
 ROBOT_FLAG=""
+OG_LITE=false
 BASE_PORT=8000
 
 while [[ "$#" -gt 0 ]]; do
@@ -40,6 +41,7 @@ while [[ "$#" -gt 0 ]]; do
     --resume) RESUME_FLAG="--resume"; shift 1;;
     --no_render) NO_RENDER_FLAG="--no_render"; shift 1;;
     --robot) ROBOT_FLAG="--robot $2"; shift 2 ;;
+    --og-lite|--og_lite) OG_LITE=true; shift 1 ;;
     *) shift ;;
   esac
 done
@@ -119,11 +121,15 @@ else
   TASK_CFG_ARG=""
 fi
 
+OG_LITE_BIND=""
+[ "$OG_LITE" = "true" ] && OG_LITE_BIND="--bind $REALM_ROOT/../OG-lite:/omnigibson-src"
+
 apptainer exec \
   --userns \
   --nv \
   --writable-tmpfs \
   --bind "$(pwd)":/app \
+  $OG_LITE_BIND \
   --bind "$REALM_DATA_PATH"/datasets:/data \
   --bind "$REALM_DATA_PATH"/isaac-sim/cache/kit:/isaac-sim/kit/cache/Kit \
   --bind "$REALM_DATA_PATH"/isaac-sim/cache/ov:/root/.cache/ov \

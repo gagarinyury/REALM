@@ -6,6 +6,7 @@ Color_Off='\033[0m'
 
 # Parse the command line arguments.
 GUI=true
+OG_LITE=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]
@@ -14,6 +15,10 @@ do
     case $key in
         -h|--headless)
         GUI=false
+        shift
+        ;;
+        --og-lite|--og_lite)
+        OG_LITE=true
         shift
         ;;
         *)
@@ -56,6 +61,11 @@ mkdir -p $REALM_DATA_PATH/isaac-sim/config
 mkdir -p $REALM_DATA_PATH/isaac-sim/data
 mkdir -p $REALM_DATA_PATH/isaac-sim/documents
 
+OG_LITE_BIND=""
+if [ "$OG_LITE" = true ]; then
+    OG_LITE_BIND="-v $REALM_ROOT/../OG-lite:/omnigibson-src:rw"
+fi
+
 docker run \
     --gpus all \
     --privileged \
@@ -66,6 +76,7 @@ docker run \
     -e CUDA_FORCE_PTX_JIT=1 \
     -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
     -v $(pwd):/app:rw \
+    ${OG_LITE_BIND} \
     -v $REALM_DATA_PATH/datasets:/data \
     -v $REALM_DATA_PATH/isaac-sim/cache/kit:/isaac-sim/kit/cache/Kit:rw \
     -v $REALM_DATA_PATH/isaac-sim/cache/ov:/root/.cache/ov:rw \
