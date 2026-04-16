@@ -122,7 +122,11 @@ else
 fi
 
 OG_LITE_BIND=""
-[ "$OG_LITE" = "true" ] && OG_LITE_BIND="--bind $REALM_ROOT/../OG-lite:/omnigibson-src"
+OG_LITE_FLAG=""
+if [ "$OG_LITE" = "true" ]; then
+  OG_LITE_BIND="--bind $REALM_ROOT/../OG-lite:/omnigibson-src"
+  OG_LITE_FLAG="--og_lite"
+fi
 
 apptainer exec \
   --userns \
@@ -162,7 +166,8 @@ apptainer exec \
   $MULTI_VIEW_FLAG \
   $RESUME_FLAG \
   $NO_RENDER_FLAG \
-  $ROBOT_FLAG
+  $ROBOT_FLAG \
+  $OG_LITE_FLAG
 
 EXIT_CODE=$?
 

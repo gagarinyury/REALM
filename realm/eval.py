@@ -1,6 +1,5 @@
 from queue import Queue
 import datetime
-import time
 import os
 import random
 import csv
@@ -102,9 +101,9 @@ def evaluate(
         task_cfg_path=None,
         robot="DROID",
         og_lite=False,
+        n_pre_obs_renders=3,
+        max_render_interval=8,
 ):
-    start = time.perf_counter()
-    og.log.info(f"DEBUG: Begin eval: {time.perf_counter() - start:.4f}s")
     if rendering_mode is None:
         rendering_mode = "rt"
     set_sim_config(rendering_mode=rendering_mode, robot=robot, og_lite=og_lite)
@@ -125,7 +124,6 @@ def evaluate(
 
     model_type = model_type # TODO: infer type from model name, rn this will just default to a pi model inference inside the client
     client = InferenceClient(model_type, host=host, port=port)
-    og.log.info(f"DEBUG: Client connected: {time.perf_counter() - start:.4f}s")
 
     env = RealmEnvironmentDynamic(
         config_path="/app/realm/config",
@@ -137,7 +135,6 @@ def evaluate(
         spp=spp,
         robot=robot
     )
-    og.log.info(f"DEBUG: Env created: {time.perf_counter() - start:.4f}s")
 
     results = []
     start_repeat = 0
@@ -176,7 +173,15 @@ def evaluate(
 
         # -------------------- Rollout loop --------------------
         obs, _ = env.reset()
+
+        # Warmup must render every step so the renderer is in sync with physics
+        # after the robot settles.  In og_lite mode RENDER_ON_STEP is False, so
+        # we temporarily re-enable it for the duration of warmup.
+        if og_lite:
+            og.sim._render_on_step = True
         obs, rew, terminated, truncated, info = env.warmup(obs)
+        if og_lite:
+            og.sim._render_on_step = False
 
         t = 0
         task_progression = 0.0
@@ -190,46 +195,60 @@ def evaluate(
         is_env_col_active = False
         drops = 0
         was_grasping = False
+        steps_since_render = 0
 
         while t < max_steps and terminal_steps > 0:
             need_new_chunk = action_buffer.empty()
 
-            # On-demand rendering (og_lite): refresh obs only when starting a new action chunk.
-            # Without og_lite, obs comes from the previous env.step() call as before.
-            if og_lite and need_new_chunk:
+            # On-demand rendering (og_lite): refresh obs at chunk boundaries, or
+            # as a stability fallback when max_render_interval steps have elapsed
+            # without a render (prevents the renderer from drifting too far from
+            # physics state, which can trigger segfaults).
+            need_render = need_new_chunk or (og_lite and steps_since_render >= max_render_interval)
+            if og_lite and need_render:
+                # Flush IsaacSim's rendering pipeline before capturing the
+                # observation.  After N blind physics steps the scene state has
+                # changed; extra render() calls propagate those changes through
+                # the renderer before we read the sensors.
+                for _ in range(n_pre_obs_renders):
+                    og.sim.render()
                 obs, _ = env.omnigibson_env.render_obs()
+                steps_since_render = 0
                 if "V-AUG" in env.active_perturbations:
                     obs = apply_blur_and_contrast(obs, env.v_aug_sigma, env.v_aug_alpha)
 
-            # Observation extraction and obs-dependent metrics: only when obs is fresh.
-            # In og_lite mode obs is only valid at chunk boundaries; in normal mode it is
-            # refreshed every step by env.step().
+            # Image + robot-state extraction: only needed at chunk boundaries
+            # (where inference will run). Fallback renders refresh obs but images
+            # are not needed when inference is not running.
             if not og_lite or need_new_chunk:
                 base_im, base_depth, base_im_second, base_depth_second, wrist_im, robot_state, gripper_state = extract_from_obs(obs, robot_name=env.robot.name)
 
-                is_self_col, is_env_col = env.check_collisions()
-                if is_self_col and not is_self_col_active:
-                    collisions_self += 1
-                is_self_col_active = is_self_col
+            # Physics-based metrics: run every step regardless of rendering mode.
+            # check_collisions() and check_grasp_condition() query physics contacts,
+            # not camera data, so stale obs is fine in og_lite mode.
+            is_self_col, is_env_col = env.check_collisions()
+            if is_self_col and not is_self_col_active:
+                collisions_self += 1
+            is_self_col_active = is_self_col
 
-                if is_env_col and not is_env_col_active:
-                    collisions_env += 1
-                is_env_col_active = is_env_col
+            if is_env_col and not is_env_col_active:
+                collisions_env += 1
+            is_env_col_active = is_env_col
 
-                is_grasping = env.check_grasp_condition(obs)
-                if was_grasping and not is_grasping:
-                    is_placed = False
-                    if hasattr(env, "task_type") and env.task_type in ["put", "stack"] and len(env.target_objects) > 0:
-                        mo = env.main_objects[0]
-                        target = env.target_objects[0]
-                        inside = mo.states[og.object_states.Inside].get_value(target)
-                        on_top = mo.states[og.object_states.OnTop].get_value(target)
-                        if inside or on_top:
-                            is_placed = True
+            is_grasping = env.check_grasp_condition(obs)
+            if was_grasping and not is_grasping:
+                is_placed = False
+                if hasattr(env, "task_type") and env.task_type in ["put", "stack"] and len(env.target_objects) > 0:
+                    mo = env.main_objects[0]
+                    target = env.target_objects[0]
+                    inside = mo.states[og.object_states.Inside].get_value(target)
+                    on_top = mo.states[og.object_states.OnTop].get_value(target)
+                    if inside or on_top:
+                        is_placed = True
 
-                    if not is_placed:
-                        drops += 1
-                was_grasping = is_grasping
+                if not is_placed:
+                    drops += 1
+            was_grasping = is_grasping
 
             # Cartesian metrics: ee_pose is cheap (reads physics, no render needed)
             ee_pos, ee_rot = env.get_ee_pose()
@@ -289,6 +308,12 @@ def evaluate(
 
             if og_lite:
                 env.omnigibson_env.step_blind(new_action)
+                # ToggledOn (push_switch) requires CAN_TOGGLE_STEPS=5 consecutive per-step updates
+                # where the finger overlaps the button. step_blind skips _non_physics_step(), so
+                # the counter would never accumulate across the 8-step blind chunk without this call.
+                # ENABLE_VISUAL_UPDATES=False and OBJECT_STATE_UPDATE_WHITELIST=["ToggledOn"]
+                # ensure this is cheap.
+                og.sim._non_physics_step()
                 # Task progression is computed from the rendered obs at the start of each chunk;
                 # carry the last known value for blind intermediate steps.
                 curr_task_progression = env.recompute_task_progression(obs) if need_new_chunk else task_progression
@@ -300,10 +325,8 @@ def evaluate(
                 task_progression_timestamps.append(t)
             if task_progression >= 1.0:
                 terminal_steps -= 1
+            steps_since_render += 1
             t += 1
-
-        og.log.info(f"DEBUG: Run finished: {time.perf_counter() - start:.4f}s")
-        # ------------------------------------------------------------------------------
 
         # Metrics calculation
         dt = 1.0 / 15.0  # Control freq is 15Hz by default
@@ -395,8 +418,6 @@ def evaluate(
 
         results_filename = save_results(results, log_dir + "/reports", task, perturbations[0], filename=results_filename)
 
-    # ------------------------------------------------------------------------------
     save_results(results, log_dir+"/reports", task, perturbations[0])
     og.log.info("Done!")
-    og.log.info(f"DEBUG: Done: {time.perf_counter() - start:.4f}s")
 

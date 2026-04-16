@@ -25,14 +25,17 @@ class WebsocketClientPolicy(_base_policy.BasePolicy):
         return self._server_metadata
 
     def _connect(self) -> websockets.sync.client.ClientConnection:
-        return websockets.sync.client.connect(
-            self._uri,
+        kwargs = dict(
             compression=None,
             max_size=None,
             open_timeout=60,
-            ping_timeout=120,
             close_timeout=30,
         )
+        try:
+            return websockets.sync.client.connect(self._uri, ping_timeout=120, **kwargs)
+        except TypeError:
+            # Older websockets versions don't support ping_timeout on the sync client
+            return websockets.sync.client.connect(self._uri, **kwargs)
 
     def _wait_for_server(self) -> Tuple[websockets.sync.client.ClientConnection, Dict]:
         logging.info(f"Waiting for server at {self._uri}...")
