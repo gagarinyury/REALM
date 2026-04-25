@@ -10,7 +10,7 @@ import omnigibson as og
 from omnigibson.objects import DatasetObject
 from realm.helpers import get_non_colliding_positions_for_objects
 from realm.environments.utils import load_task_progressions
-TASK_PROGRESSIONS = load_task_progressions()
+TASK_PROGRESSIONS, TASK_STAGE_CHECKS = load_task_progressions()
 from realm.environments.perturbations._helpers import replace_obj, sample_objects
 
 if TYPE_CHECKING:
@@ -33,6 +33,7 @@ def sb_vrb(env: "RealmEnvironmentDynamic") -> None:
     new_verb_for_task = random.choice(available_task_types)
     env.task_type = new_verb_for_task
     env.task_progression = TASK_PROGRESSIONS[env.task_type]
+    env.stage_checks = TASK_STAGE_CHECKS[env.task_type]
 
     included_categories = None
     if env.task_type == "put":

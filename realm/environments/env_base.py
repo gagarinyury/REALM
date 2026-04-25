@@ -2,7 +2,7 @@ import numpy as np
 import torch
 
 from realm.environments.utils import *
-from realm.helpers import compute_rot_diff_magnitude
+from realm.helpers import compute_rot_diff_magnitude, compute_rot_diff_magnitude_any_axis
 from realm.robots.droid_joint_controller import IndividualJointPDController as DROIDJointPDController
 from realm.robots.droid_gripper_controller import MultiFingerGripperController as DROIDGripperController
 from realm.robots.custom_joint_controller import IndividualJointPDController
@@ -22,7 +22,7 @@ REGISTERED_CONTROLLERS["DroidEndEffectorController"] = DroidEndEffectorControlle
 REGISTERED_CONTROLLERS["CustomJointController"] = DROIDJointPDController
 REGISTERED_CONTROLLERS["CustomGripperController"] = DROIDGripperController
 INIT_OPENNESS_FRACTION = 1.0 #0.5
-TASK_PROGRESS_RUBRICS = load_task_progressions()
+TASK_PROGRESS_RUBRICS, TASK_STAGE_CHECKS = load_task_progressions()
 
 
 class RealmEnvironmentBase:
@@ -48,8 +48,10 @@ class RealmEnvironmentBase:
         self.was_lifted = False
         if task_type in TASK_PROGRESS_RUBRICS:
             self.task_progression = TASK_PROGRESS_RUBRICS[task_type]
+            self.stage_checks = TASK_STAGE_CHECKS[task_type]
         else:
             self.task_progression = None
+            self.stage_checks = None
 
         self.reset_joints()
 
@@ -75,7 +77,8 @@ class RealmEnvironmentBase:
             "MOVE_JOINT_LARGE": self.check_moved_mo_joint_large,
             "MOVE_JOINT_FULL": self.check_moved_mo_joint_full,
             "TOGGLED_ON": self.check_toggled_on_condition,
-            "POURED": self.check_pour # TODO: pouring
+            "POURED": self.check_pour, # TODO: pouring
+            "TOUCHED_AND_DISPLACED": self.check_touched_and_displaced,
         }
 
     def  reset_joints(self, target_drawer_loc: str = "top"):
@@ -198,13 +201,20 @@ class RealmEnvironmentBase:
         is_robot_touching_obj = self.robot.states[og.object_states.Touching].get_value(candidate_obj)
         return is_robot_touching_obj
 
+    def _stage_passes(self, stage, obs):
+        # A stage may register a list of alternative checks; any one passing satisfies
+        # the stage.
+        for check_name in self.stage_checks[stage]:
+            if self.success_conditions[check_name](obs):
+                return True
+        return False
+
     def recompute_task_progression(self, obs):
         reward = 0.0
 
         if self.task_progression is not None:
             for stage, is_completed_flag in self.task_progression.items():
-                checker_function = self.success_conditions.get(stage)
-                if is_completed_flag or checker_function(obs):
+                if is_completed_flag or self._stage_passes(stage, obs):
                     if not is_completed_flag:
                         self.task_progression[stage] = True
                     reward += 1 / len(self.task_progression.keys())
@@ -212,6 +222,15 @@ class RealmEnvironmentBase:
                     break
             assert 0.0 <= reward <= 1.0
         return reward
+
+    def check_final_success(self, obs):
+        # Binary success based purely on the terminal stage's checker, independent of
+        # whether intermediate stages were observed in order. This lets policies that
+        # achieve the goal via a different strategy still count as successes.
+        if self.task_progression is None:
+            return False
+        final_stage = next(reversed(self.task_progression))
+        return self._stage_passes(final_stage, obs)
 
     def check_reach_condition(self, obs):
         mo = self.main_objects[0]
@@ -275,6 +294,18 @@ class RealmEnvironmentBase:
             return self.check_touch_condition(obs) and delta_openness_fraction > threshold
         else:
             raise NotImplementedError()
+
+    def check_touched_and_displaced(self, obs, distance_threshold=0.01, rot_threshold=0.05):
+        # Touched by the gripper AND moved (translation) OR rotated (any axis) — useful
+        # as an early-stage "the policy made meaningful contact" indicator that doesn't
+        # depend on the displacement happening to be translational vs rotational.
+        if not self.check_touch_condition(obs):
+            return False
+        mo = self.main_objects[0]
+        mo_pos_curr, mo_rot_curr = mo.get_position_orientation()
+        translated = float(np.linalg.norm(mo_pos_curr - self.mo_pos_orig)) > distance_threshold
+        rotated = compute_rot_diff_magnitude_any_axis(self.mo_rot_orig, mo_rot_curr) > rot_threshold
+        return translated or rotated
 
     def check_opened_mo_joint_small(self, obs):
         return self.get_mo_joint_openness_fraction() > 0.125

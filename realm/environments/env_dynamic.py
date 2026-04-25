@@ -530,6 +530,22 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         og.log.info("Warmup finished.")
         return obs, rew, terminated, truncated, info
 
+    def enforce_min_main_object_mass(self, min_mass=0.05):
+        # Some dataset assets (cubes, spoons, etc.) ship with very low mass that lets
+        # the gripper push them around unrealistically. Floor the total mass at
+        # min_mass kg by uniformly scaling every link's mass. Fixed-base main objects
+        # (cabinets, faucets) are skipped — their dynamic mass is irrelevant.
+        for obj in self.main_objects:
+            if getattr(obj, "fixed_base", False):
+                continue
+            links = list(obj._links.values())
+            total = sum(link.mass for link in links)
+            if total <= 0 or total >= min_mass:
+                continue
+            scale = min_mass / total
+            for link in links:
+                link.mass = link.mass * scale
+
     def reset(self):
         obs, _ = self.omnigibson_env.reset()
         self.reset_joints()
@@ -540,6 +556,10 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
         for p in self.active_perturbations:
             self.supported_pertrubations[p]()
+        # B-HOBJ deliberately stress-tests low-mass dynamics; preserve its old behavior
+        # by only flooring mass when B-HOBJ is not active.
+        if "B-HOBJ" not in self.active_perturbations:
+            self.enforce_min_main_object_mass()
         if "V-AUG" in self.active_perturbations:
             self.v_aug_sigma = np.random.uniform(0.0, 2.5)
             self.v_aug_alpha = np.random.uniform(0.25, 1.5)

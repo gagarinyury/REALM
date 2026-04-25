@@ -171,6 +171,7 @@ def evaluate(
         t = 0
         task_progression = 0.0
         task_progression_timestamps = []
+        binary_success = False
         terminal_steps = 15
 
         ee_poses = []
@@ -262,7 +263,9 @@ def evaluate(
             if curr_task_progression > task_progression:
                 task_progression = curr_task_progression
                 task_progression_timestamps.append(t)
-            if task_progression >= 1.0:
+            if env.check_final_success(obs):
+                binary_success = True
+            if task_progression >= 1.0 or binary_success:
                 terminal_steps -= 1
             t += 1
 
@@ -310,10 +313,12 @@ def evaluate(
                 if not is_completed:
                     stage_to_log = stage
                     break
+            if binary_success:
+                stage_to_log = "SUCCESS"
         else:
             stage_to_log = "N/A"
 
-        if task_progression == 1.0 and hasattr(env, "task_type") and env.task_type in ["put", "stack"]:
+        if binary_success and hasattr(env, "task_type") and env.task_type in ["put", "stack"]:
             drops = max(0, drops - 1)
 
         result_entry = {
@@ -327,7 +332,7 @@ def evaluate(
             "task_progression": task_progression,
             "task_progression_timestamps": task_progression_timestamps,
             "stage": stage_to_log,
-            "binary_SR": 1.0 if task_progression == 1.0 else 0.0,
+            "binary_SR": 1.0 if binary_success else 0.0,
             "joint_vel_var": joint_vel_var,
             "joint_acc_var": joint_acc_var,
             "joint_jerk": joint_jerk_metric,
