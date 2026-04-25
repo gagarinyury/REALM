@@ -25,7 +25,8 @@ def sb_vrb(env: "RealmEnvironmentDynamic") -> None:
         "rotate": ["put", "pick", "stack"],
         "stack": ["put", "pick", "rotate"],
         "open": ["close"],
-        "close": ["open"]
+        "close": ["open"],
+        "pour": ["pick", "put", "rotate", "stack"],
     }
 
     available_task_types = compatibility_matrix[env.task_type]

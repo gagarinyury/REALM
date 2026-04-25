@@ -48,7 +48,7 @@ SKILL_COMPATIBILITY_MATRIX = {
     "stack": ["put", "pick", "rotate"],
     "open": ["close"],
     "close": ["open"],
-    "pour": ["pick"],
+    "pour": ["pick", "put", "rotate", "stack"],
 }
 DEFAULT_RESET_JOINTPOS = np.array([0, -1 / 5 * np.pi, 0, -4 / 5 * np.pi, 0, 3 / 5 * np.pi, 0.0])
 DROID_BASE_HEIGHT = 0.86244
@@ -275,6 +275,17 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
         if cfg["task_type"] == "pour":
             assert len(to_cfgs) == 1, "pour task requires exactly one target object"
+            if rendering_mode == "r":
+                raise NotImplementedError(
+                    "pour is incompatible with rendering_mode='r' (rasterized): "
+                    "the fluid isosurface needs the RTX path. Use 'rt' or 'pt'."
+                )
+            from omnigibson.macros import gm
+            if not gm.ENABLE_VISUAL_UPDATES or not gm.RENDER_ON_STEP:
+                raise NotImplementedError(
+                    "pour is incompatible with og_lite mode: fluid particles "
+                    "require visual updates and render-on-step. Re-run with og_lite=False."
+                )
             configure_pour_macros()
         self.water_system = None
 

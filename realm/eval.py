@@ -247,6 +247,11 @@ def evaluate(
                     on_top = mo.states[og.object_states.OnTop].get_value(target)
                     if inside or on_top:
                         is_placed = True
+                elif hasattr(env, "task_type") and env.task_type == "pour":
+                    # Releasing the source after a successful pour is goal-aligned,
+                    # not a drop. Use the pour success check as the "placed" signal.
+                    if env.check_pour(obs):
+                        is_placed = True
 
                 if not is_placed:
                     drops += 1
