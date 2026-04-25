@@ -33,6 +33,10 @@ def vb_pose(env: "RealmEnvironmentDynamic") -> None:
                     if "bounding_box" not in cfg:
                         cfg["bounding_box"] = scene_obj.aabb_extent.tolist()
 
+        # Scene assets (loaded from scene_definition.yaml) must keep their
+        # authored absolute positions — never randomize them.
+        objects_to_skip = [obj.name for obj in env.distractors + env.target_objects]
+        objects_to_skip += getattr(env, "scene_obj_names", [])
         env.cfg["objects"] = get_non_colliding_positions_for_objects(
             xmin=env.spawn_bbox[0],
             xmax=env.spawn_bbox[1],
@@ -40,7 +44,7 @@ def vb_pose(env: "RealmEnvironmentDynamic") -> None:
             ymax=env.spawn_bbox[3],
             z=env.spawn_bbox[4],
             obj_cfg=env.cfg["objects"],
-            objects_to_skip=[obj.name for obj in env.distractors + env.target_objects],
+            objects_to_skip=objects_to_skip,
             main_object_names=[],
             max_attempts_per_object=25000 # TODO: this must be successful, careful what we do here...
         )
