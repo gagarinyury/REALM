@@ -306,8 +306,13 @@ def get_non_colliding_positions_for_objects(
             if not collision:
                 # If no collision, place the object
                 placed_objects_info.append((x_center, y_center, half_width, half_depth))
-                # Update the position in the original obj_cfg list using its original index
-                obj_cfg[original_idx]["position"] = [x_center, y_center, z]
+                # Update the position in the original obj_cfg list using its original index.
+                # set_position_orientation() writes the prim origin (~bbox center for
+                # dataset objects), so we lift z by half the bbox height + a small
+                # buffer to keep the bottom on (not inside) the table — otherwise
+                # PhysX ejects the object upward on the next sim.play().
+                bbox_h = bbox[2] if len(bbox) >= 3 else 0.1
+                obj_cfg[original_idx]["position"] = [x_center, y_center, z + bbox_h / 2 + 0.005]
                 placed = True
                 break
 
@@ -315,7 +320,8 @@ def get_non_colliding_positions_for_objects(
             og.log.error(f"Failed to place object '{cfg.get('name', 'Unnamed Object')}' after {max_attempts_per_object} attempts. Dropping it from the air.")
             x_center = np.random.uniform(xmin + half_width, xmax - half_width)
             y_center = np.random.uniform(ymin + half_depth, ymax - half_depth)
-            obj_cfg[original_idx]["position"] = [x_center, y_center, z + 0.1]
+            bbox_h = bbox[2] if len(bbox) >= 3 else 0.1
+            obj_cfg[original_idx]["position"] = [x_center, y_center, z + bbox_h / 2 + 0.1]
 
 
     return obj_cfg
