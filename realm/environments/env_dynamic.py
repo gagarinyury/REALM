@@ -224,7 +224,14 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
     ) -> None:
         assert not (multi_view and no_rendering), f"Multi-view rendering was enabled during no_rendering mode. Either one is likely a mistake."
         self.task_cfg_path = "/".join(task_cfg_path.split("/")[-3:])
-        self.use_droid_with_base = True if self.task_cfg_path.split("/")[0] == "REALM_DROID10" else False # TODO: infer properly from the task/scene config yaml
+        # Prefer an explicit `use_droid_with_base` flag in the task yaml when set;
+        # otherwise fall back to the path-based heuristic (REALM_DROID10 tasks use
+        # the mounted base, everything else uses the bare arm).
+        _task_yaml = yaml.load(open(f"{config_path}/tasks/{self.task_cfg_path}", "r"), Loader=yaml.FullLoader)
+        if "use_droid_with_base" in _task_yaml:
+            self.use_droid_with_base = bool(_task_yaml["use_droid_with_base"])
+        else:
+            self.use_droid_with_base = self.task_cfg_path.split("/")[0] == "REALM_DROID10"
         self.robot_name = robot
         self.multi_view = multi_view
         self.no_rendering = no_rendering
