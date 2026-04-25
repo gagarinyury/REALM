@@ -9,6 +9,11 @@ if TYPE_CHECKING:
 
 
 def sb_noun(env: "RealmEnvironmentDynamic") -> None:
+    if env.task_type == "pour":
+        # Swapping the source for a random distractor would land on something
+        # that can't hold water (corkscrew, knife, etc.); needs a fillable-only
+        # distractor pool before this is meaningful.
+        raise NotImplementedError("SB-NOUN is not supported for the pour task")
     if env.task_type in ["open_drawer", "close_drawer"]:
         adjective = random.choice(["middle", "top"])
         env.instruction = env.cfg["instruction"].replace("top", adjective)
