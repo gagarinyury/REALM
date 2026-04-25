@@ -412,13 +412,17 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         self.reset_qpos = reset_joint_pos
 
         # ---------------------------------------- object config ----------------------------------------
+        # Task objects (main + target + distractors + immutables) participate in
+        # spawn-bbox placement and need either `relative_bbox_position` or
+        # `position`. Scene assets from scene_definition.yaml (e.g. tables) carry
+        # absolute `position` only and are passed through unchanged so they don't
+        # need a `bounding_box` in the placement helper.
         obj_list = task_cfg["main_objects"] + task_cfg["target_objects"]
         if "distractors" in task_cfg:
             obj_list += task_cfg["distractors"]
         if "immutables" in task_cfg:
             obj_list += task_cfg["immutables"]
-        if scene_cfg is not None:
-            obj_list += scene_cfg["objects"]
+        scene_obj_list = scene_cfg["objects"] if scene_cfg is not None else []
 
         robot_rot_deg_z = scene_data['rot'][-1]
         assert robot_rot_deg_z >= 0
@@ -428,15 +432,6 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
         if self.spawn_bbox is not None:
             for obj in obj_list:
-                # Scene-asset objects (e.g. tables loaded from scene_definition.yaml)
-                # specify absolute `position` and have no `relative_bbox_position` —
-                # leave their pose untouched.
-                if "relative_bbox_position" not in obj:
-                    assert "position" in obj, (
-                        f"Object {obj.get('name', '<unnamed>')} has neither "
-                        f"`relative_bbox_position` nor `position`."
-                    )
-                    continue
                 obj["relative_bbox_position"][0] *= obj_pos_modifier_x
                 if obj_pos_modifier_x != 1:
                     if obj["relative_bbox_position"][0] < 0:
@@ -465,8 +460,9 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                 max_attempts_per_object=25000,
                 main_object_names=[o["name"] for o in obj_list],
             )
+            cfg["objects"] += scene_obj_list
         else:
-            cfg["objects"] = obj_list
+            cfg["objects"] = obj_list + scene_obj_list
             distractors = []
 
         if "distractors" in task_cfg:
