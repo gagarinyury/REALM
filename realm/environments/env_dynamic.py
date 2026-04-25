@@ -428,6 +428,15 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
         if self.spawn_bbox is not None:
             for obj in obj_list:
+                # Scene-asset objects (e.g. tables loaded from scene_definition.yaml)
+                # specify absolute `position` and have no `relative_bbox_position` —
+                # leave their pose untouched.
+                if "relative_bbox_position" not in obj:
+                    assert "position" in obj, (
+                        f"Object {obj.get('name', '<unnamed>')} has neither "
+                        f"`relative_bbox_position` nor `position`."
+                    )
+                    continue
                 obj["relative_bbox_position"][0] *= obj_pos_modifier_x
                 if obj_pos_modifier_x != 1:
                     if obj["relative_bbox_position"][0] < 0:
