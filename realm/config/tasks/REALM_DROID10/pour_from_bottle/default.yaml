@@ -21,11 +21,21 @@ reset_joint_pos: [ 0.0055956,  -0.46229482, -0.10837201, -2.22445,   -0.02223617
 
 main_objects:
     - type: "DatasetObject"
-      name: "water_glass_main"
-      category: "water_glass"
-      model: "lvqgvn"
-      bounding_box: [0.06, 0.06, 0.15]
+      name: "cola_bottle"
+      category: "cola_bottle"
+      model: "oyqdtz"
+      bounding_box: [0.07, 0.07, 0.22 ]
       relative_bbox_position: [0.25, 0.4, 0.125]
+#    - type: "DatasetObject"
+#      name: "water_glass_main"
+#      category: "water_glass"
+#      model: "lvqgvn"
+#      bounding_box: [0.06, 0.06, 0.15]
+#      relative_bbox_position: [0.25, 0.4, 0.125]
+
+# water_bottle-ackxiy
+# water_bottle-lzdzkk
+# beer_bottle-nigfha
 
 target_objects:
     - type: "DatasetObject"
