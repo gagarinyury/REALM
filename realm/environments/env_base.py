@@ -73,7 +73,7 @@ class RealmEnvironmentBase:
             "MOVE_JOINT_LARGE": self.check_moved_mo_joint_large,
             "MOVE_JOINT_FULL": self.check_moved_mo_joint_full,
             "TOGGLED_ON": self.check_toggled_on_condition,
-            "POURED": self.check_pour, # TODO: pouring
+            "POURED": self.check_pour,
             "TOUCHED_AND_DISPLACED": self.check_touched_and_displaced,
         }
 
@@ -389,6 +389,21 @@ class RealmEnvironmentBase:
         mo = self.main_objects[0]
         return mo.states[og.object_states.ToggledOn].get_value()
 
-    def check_pour(self):
-        return False
+    def check_pour(self, obs, min_particles=15):
+        # Counts liquid particles inside the target receptacle. The pour task seeds
+        # the source (main_object) with water in env_dynamic; success requires that
+        # enough particles end up inside the target's container volume.
+        water_system = getattr(self, "water_system", None)
+        if water_system is None or water_system.n_particles == 0:
+            return False
+        if not self.target_objects:
+            return False
+        target = self.target_objects[0]
+        contained_state = target.states.get(og.object_states.ContainedParticles)
+        if contained_state is None:
+            return False
+        n_in = contained_state.get_value(water_system).n_in_volume
+        if hasattr(n_in, "item"):
+            n_in = n_in.item()
+        return int(n_in) >= min_particles
 
