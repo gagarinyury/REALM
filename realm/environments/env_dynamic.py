@@ -423,6 +423,10 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         if "immutables" in task_cfg:
             obj_list += task_cfg["immutables"]
         scene_obj_list = scene_cfg["objects"] if scene_cfg is not None else []
+        # Track scene-asset names so perturbations (e.g. vb_pose) can skip them
+        # when re-running the placement helper — they have absolute positions and
+        # must stay put.
+        self.scene_obj_names = [o["name"] for o in scene_obj_list]
 
         robot_rot_deg_z = scene_data['rot'][-1]
         assert robot_rot_deg_z >= 0
