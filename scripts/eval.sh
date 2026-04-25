@@ -58,6 +58,7 @@ Rest of options:
                              Default: singularity
   
   --multi-view               Enable multi-view camera (adds a second external camera)
+  --og-lite                  Bind OG-lite source into the container for speedup
 
 Other:
   -h, --help                 Show this help and exit
@@ -91,6 +92,7 @@ NO_RENDER=false
 ROBOT=""
 TASK_CFG_PATH=""
 RENDERING_MODE="rt"
+OG_LITE=false
 
 # --------------------------------------------------------------------------------------
 # Parse flag arguments
@@ -128,6 +130,10 @@ while [[ $# -gt 0 ]]; do
             fi
             RENDERING_MODE="$2"
             shift 2
+            ;;
+        --og-lite|--og_lite)
+            OG_LITE=true
+            shift
             ;;
         -p|--perturbation-id)
             if [[ $# -lt 2 ]]; then
@@ -655,6 +661,13 @@ if [ -n "$RENDERING_MODE" ]; then
     RENDERING_MODE_FLAG="--rendering_mode $RENDERING_MODE"
 fi
 
+OG_LITE_APPTAINER_BIND=""
+OG_LITE_DOCKER_BIND=""
+if [ "$OG_LITE" = true ]; then
+    OG_LITE_APPTAINER_BIND="--bind $REALM_ROOT/../OG-lite:/omnigibson-src"
+    OG_LITE_DOCKER_BIND="-v $REALM_ROOT/../OG-lite:/omnigibson-src:rw"
+fi
+
 case "$EVAL_ENV" in
     singularity)
         if [[ -z "${REALM_SIF:-}" ]]; then
@@ -669,6 +682,7 @@ case "$EVAL_ENV" in
             --nv \
             --writable-tmpfs \
             --bind "$REALM_ROOT:/app" \
+            $OG_LITE_APPTAINER_BIND \
             --bind "$REALM_DATA_PATH/datasets:/data" \
             --bind "$REALM_DATA_PATH/isaac-sim/cache/kit:/isaac-sim/kit/cache/Kit" \
             --bind "$REALM_DATA_PATH/isaac-sim/cache/ov:/root/.cache/ov" \
@@ -706,6 +720,7 @@ case "$EVAL_ENV" in
             -e OMNIGIBSON_HEADLESS=1 \
             -e OMNI_KIT_ALLOW_ROOT=1 \
             -v "$REALM_ROOT:/app:rw" \
+            $OG_LITE_DOCKER_BIND \
             -v "$REALM_DATA_PATH/datasets:/data" \
             -v "$REALM_DATA_PATH/isaac-sim/cache/kit:/isaac-sim/kit/cache/Kit:rw" \
             -v "$REALM_DATA_PATH/isaac-sim/cache/ov:/root/.cache/ov:rw" \

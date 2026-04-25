@@ -10,7 +10,7 @@ pick:
   - LIFT_LARGE
 rotate:
   - REACH
-  - GRASP
+  - [GRASP, TOUCHED_AND_DISPLACED]
   - ROTATED
 push:
   - REACH

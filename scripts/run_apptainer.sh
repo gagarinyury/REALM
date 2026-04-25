@@ -17,6 +17,14 @@ if [[ -z "${REALM_DATA_PATH:-}" ]]; then
   exit 1
 fi
 
+OG_LITE=false
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --og-lite|--og_lite) OG_LITE=true; shift ;;
+        *) break ;;
+    esac
+done
+
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 REALM_ROOT=$( cd -- "$( dirname -- "${SCRIPT_DIR}" )" &> /dev/null && pwd )
 
@@ -31,12 +39,16 @@ mkdir -p $REALM_DATA_PATH/isaac-sim/config
 mkdir -p $REALM_DATA_PATH/isaac-sim/data
 mkdir -p $REALM_DATA_PATH/isaac-sim/documents
 
+OG_LITE_BIND=""
+[ "$OG_LITE" = "true" ] && OG_LITE_BIND="--bind $REALM_ROOT/../OG-lite:/omnigibson-src"
+
 echo "Ready to launch singularity"
 apptainer shell \
   --userns \
   --nv \
   --writable-tmpfs \
   --bind $(pwd):/app \
+  $OG_LITE_BIND \
   --bind $REALM_DATA_PATH/datasets:/data \
   --bind $REALM_DATA_PATH/isaac-sim/cache/kit:/isaac-sim/kit/cache/Kit \
   --bind $REALM_DATA_PATH/isaac-sim/cache/ov:/root/.cache/ov \

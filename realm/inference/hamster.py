@@ -1,7 +1,6 @@
 import base64
 import re
 import cv2
-import numpy as np
 from openai import OpenAI
 import omnigibson as og
 
@@ -14,7 +13,7 @@ class HamsterClient:
     GRIPPER_OPEN = 1
     MODEL_NAME = "Hamster_dev"
 
-    def __init__(self, host=None, port=8000, ip_file="./ip_eth0.txt"):
+    def __init__(self, host=None, port=8000):
         self.server_ip = "127.0.0.1"
         self.base_url = f"http://{self.server_ip}:{port}/v1"
         self.client = OpenAI(base_url=self.base_url, api_key="fake-key")

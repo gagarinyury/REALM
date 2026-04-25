@@ -2,11 +2,10 @@ import math
 import numpy as np
 import torch
 import yaml
-import random
 import copy
 import os
 
-from realm.environments.env_base import RealmEnvironmentBase, TASK_PROGRESS_RUBRICS
+from realm.environments.env_base import RealmEnvironmentBase
 from realm.environments.perturbations.default import default as _pert_default
 from realm.environments.perturbations.v_light import v_light as _pert_v_light
 from realm.environments.perturbations.v_view import v_view as _pert_v_view
@@ -18,17 +17,13 @@ from realm.environments.perturbations.sb_vrb import sb_vrb as _pert_sb_vrb
 from realm.environments.perturbations.vb_pose import vb_pose as _pert_vb_pose
 from realm.environments.perturbations.vb_mobj import vb_mobj as _pert_vb_mobj
 from realm.environments.perturbations.vsb_nobj import vsb_nobj as _pert_vsb_nobj
-from realm.robots.widowx import WidowX
-from realm.robots.ur import UR
+from realm.robots.widowx import WidowX  # noqa: F401  # OmniGibson registration import
+from realm.robots.ur import UR  # noqa: F401  # OmniGibson registration import
 from realm.helpers import (
     calculate_new_camera_pose_mixed_rotations,
-    add_rotation_noise,
     get_non_colliding_positions_for_objects,
     apply_blur_and_contrast,
     get_non_droid_categories,
-    get_droid_categories_by_theme,
-    get_objects_by_names,
-    get_default_objects_cfg,
     robot_to_world,
     world_to_robot,
 )
@@ -36,11 +31,9 @@ from realm.helpers import (
 import omnigibson as og
 import omnigibson.utils.transform_utils as omnigibson_transform_utils
 import omnigibson.lazy as lazy
-from omnigibson.objects import DatasetObject, PrimitiveObject, USDObject
-from omnigibson.utils.asset_utils import get_all_object_category_models
+from omnigibson.objects import DatasetObject
 from omnigibson.utils.asset_utils import get_all_object_models
 from omnigibson.utils.usd_utils import create_joint
-from omnigibson.prims.joint_prim import JointPrim
 from scipy.spatial.transform import Rotation as R
 
 
@@ -111,21 +104,45 @@ def _panda_fk(q):
     return m[:3, 3].copy(), _R.from_matrix(m[:3, :3]).as_quat()
 
 
-def set_rendering_mode(rendering_mode):
+def set_rendering_mode(rendering_mode, spp=8):
     carb_settings = lazy.carb.settings.get_settings()
     if rendering_mode == "pt":
         def enable_interactive_path_tracing(carb_settings, samples_per_pixel=8):
             carb_settings.set("/rtx/rendermode", "PathTracing")
+            # if samples_per_pixel is not None:
+            #     carb_settings.set_int("/rtx/pathtracing/spp", samples_per_pixel)
+            #     carb_settings.set_int("/rtx/pathtracing/totalSpp", samples_per_pixel)
+            #     carb_settings.set_int(
+            #         "/rtx/pathtracing/useDirectLightingCache", False
+            #     )
+            # carb_settings.set_bool("/rtx/pathtracing/optixDenoiser/enabled", True)
+
             if samples_per_pixel is not None:
                 carb_settings.set_int("/rtx/pathtracing/spp", samples_per_pixel)
-                carb_settings.set_int("/rtx/pathtracing/totalSpp", samples_per_pixel)
-                carb_settings.set_int(
-                    "/rtx/pathtracing/useDirectLightingCache", False
-                )
+                # Cap accumulation well above spp so static scenes (between episodes, paused sim)
+                # converge over multiple renders. In dynamic frames you still only get spp/frame.
+                carb_settings.set_int("/rtx/pathtracing/totalSpp", max(samples_per_pixel * 16, 64))
+
+                # Don't reset accumulator every time animation time ticks — lets static periods converge.
+            carb_settings.set_bool("/rtx/resetPtAccumOnAnimTimeChange", False)
+
+            # Sampling caches: ~10–20% speedup, off by default in OG.
+            carb_settings.set_bool("/rtx/pathtracing/lightcache/cached/enabled", True)
+            carb_settings.set_bool("/rtx/pathtracing/cached/enabled", True)
+
+            # Default is 32/16 — overkill for interior scenes and the dominant cost driver.
+            carb_settings.set_int("/rtx/pathtracing/maxBounces", 6)
+            carb_settings.set_int("/rtx/pathtracing/maxSpecularAndTransmissionBounces", 6)
+
+            # Firefly clamp — prevents single bright samples from blowing up at low SPP.
+            carb_settings.set_float("/rtx/pathtracing/fireflyFilter/maxIntensityPerSample", 10000.0)
+            carb_settings.set_float("/rtx/pathtracing/fireflyFilter/maxIntensityPerSampleDiffuse", 50000.0)
+
+            # Denoiser is essential at low SPP.
             carb_settings.set_bool("/rtx/pathtracing/optixDenoiser/enabled", True)
 
-        #carb_settings.set("/persistent/omnihydra/useSceneGraphInstancing", True)
-        enable_interactive_path_tracing(carb_settings, samples_per_pixel=8)
+            #carb_settings.set("/persistent/omnihydra/useSceneGraphInstancing", True)
+        enable_interactive_path_tracing(carb_settings, samples_per_pixel=spp)
     elif rendering_mode == "r":
         carb_settings.set_string("/rtx/rendermode", "RaytracedLighting")
         carb_settings.set_bool("/rtx/translucency/enabled", True)
@@ -158,6 +175,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         no_rendering: bool = False,
         multi_view: bool = False,
         rendering_mode: str = "rt",
+        spp: int = 8,
         robot: str = "DROID"
     ) -> None:
         assert not (multi_view and no_rendering), f"Multi-view rendering was enabled during no_rendering mode. Either one is likely a mistake."
@@ -167,6 +185,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         self.multi_view = multi_view
         self.no_rendering = no_rendering
         self.rendering_mode = rendering_mode
+        self.spp = spp
         self.config_path = config_path
         self.scene_model = scene_model
         self.scene_part = scene_part
@@ -196,9 +215,9 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             assert perturbation in self.supported_pertrubations.keys()
 
         if self.use_droid_with_base:
-            from realm.robots.droid_arm_mounted import DROID
+            from realm.robots.droid_arm_mounted import DROID  # noqa: F401  # OmniGibson registration import
         else:
-            from realm.robots.droid_arm import DROID
+            from realm.robots.droid_arm import DROID  # noqa: F401  # OmniGibson registration import
 
         camera_extrinsics_path = f"{self.config_path}/env/external_sensors/camera_extrinsics.yaml"
         self.cfg_camera_extrinsics = yaml.load(open(camera_extrinsics_path, "r"), Loader=yaml.FullLoader)
@@ -248,7 +267,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         self.update_robot_physics()
         self.apply_scene_fixes_from_cfg()
         self.disable_visual_toggles()
-        set_rendering_mode(rendering_mode)
+        set_rendering_mode(rendering_mode, spp=self.spp)
 
         super().__init__(
             main_objects=self.main_objects,
@@ -530,6 +549,22 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         og.log.info("Warmup finished.")
         return obs, rew, terminated, truncated, info
 
+    def enforce_min_main_object_mass(self, min_mass=0.05):
+        # Some dataset assets (cubes, spoons, etc.) ship with very low mass that lets
+        # the gripper push them around unrealistically. Floor the total mass at
+        # min_mass kg by uniformly scaling every link's mass. Fixed-base main objects
+        # (cabinets, faucets) are skipped — their dynamic mass is irrelevant.
+        for obj in self.main_objects:
+            if getattr(obj, "fixed_base", False):
+                continue
+            links = list(obj._links.values())
+            total = sum(link.mass for link in links)
+            if total <= 0 or total >= min_mass:
+                continue
+            scale = min_mass / total
+            for link in links:
+                link.mass = link.mass * scale
+
     def reset(self):
         obs, _ = self.omnigibson_env.reset()
         self.reset_joints()
@@ -540,6 +575,10 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
         for p in self.active_perturbations:
             self.supported_pertrubations[p]()
+        # B-HOBJ deliberately stress-tests low-mass dynamics; preserve its old behavior
+        # by only flooring mass when B-HOBJ is not active.
+        if "B-HOBJ" not in self.active_perturbations:
+            self.enforce_min_main_object_mass()
         if "V-AUG" in self.active_perturbations:
             self.v_aug_sigma = np.random.uniform(0.0, 2.5)
             self.v_aug_alpha = np.random.uniform(0.25, 1.5)
