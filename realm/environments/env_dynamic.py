@@ -107,15 +107,9 @@ def _panda_fk(q):
 def set_rendering_mode(rendering_mode, spp=8):
     carb_settings = lazy.carb.settings.get_settings()
     if rendering_mode == "pt":
+        # Claude Code settings for optimized path tracing:
         def enable_interactive_path_tracing(carb_settings, samples_per_pixel=8):
             carb_settings.set("/rtx/rendermode", "PathTracing")
-            # if samples_per_pixel is not None:
-            #     carb_settings.set_int("/rtx/pathtracing/spp", samples_per_pixel)
-            #     carb_settings.set_int("/rtx/pathtracing/totalSpp", samples_per_pixel)
-            #     carb_settings.set_int(
-            #         "/rtx/pathtracing/useDirectLightingCache", False
-            #     )
-            # carb_settings.set_bool("/rtx/pathtracing/optixDenoiser/enabled", True)
 
             if samples_per_pixel is not None:
                 carb_settings.set_int("/rtx/pathtracing/spp", samples_per_pixel)
@@ -131,16 +125,22 @@ def set_rendering_mode(rendering_mode, spp=8):
             carb_settings.set_bool("/rtx/pathtracing/cached/enabled", True)
 
             # Default is 32/16 — overkill for interior scenes and the dominant cost driver.
-            carb_settings.set_int("/rtx/pathtracing/maxBounces", 6)
-            carb_settings.set_int("/rtx/pathtracing/maxSpecularAndTransmissionBounces", 6)
+            carb_settings.set_int("/rtx/pathtracing/maxBounces", 3)
+            carb_settings.set_int("/rtx/pathtracing/maxSpecularAndTransmissionBounces", 1)
+
+            # Tabletop scenes have no fog/smoke and no skin/wax — skip those passes.
+            carb_settings.set_bool("/rtx/pathtracing/volume/enabled", False)
+            carb_settings.set_bool("/rtx/pathtracing/sss/enabled", False)
+
+            # NEE: 1 light sample/shading point is fine with denoiser.
+            carb_settings.set_int("/rtx/pathtracing/nee/numLightSamples", 1)
 
             # Firefly clamp — prevents single bright samples from blowing up at low SPP.
             carb_settings.set_float("/rtx/pathtracing/fireflyFilter/maxIntensityPerSample", 10000.0)
             carb_settings.set_float("/rtx/pathtracing/fireflyFilter/maxIntensityPerSampleDiffuse", 50000.0)
 
             # Denoiser is essential at low SPP.
-            carb_settings.set_bool("/rtx/pathtracing/optixDenoiser/enabled", True)
-
+            carb_settings.set_bool("/rtx/pathtracing/optixDenoiser/enabled", False)
             #carb_settings.set("/persistent/omnihydra/useSceneGraphInstancing", True)
         enable_interactive_path_tracing(carb_settings, samples_per_pixel=spp)
     elif rendering_mode == "r":
