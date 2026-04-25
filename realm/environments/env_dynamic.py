@@ -109,15 +109,39 @@ def set_rendering_mode(rendering_mode, spp=8):
     if rendering_mode == "pt":
         def enable_interactive_path_tracing(carb_settings, samples_per_pixel=8):
             carb_settings.set("/rtx/rendermode", "PathTracing")
+            # if samples_per_pixel is not None:
+            #     carb_settings.set_int("/rtx/pathtracing/spp", samples_per_pixel)
+            #     carb_settings.set_int("/rtx/pathtracing/totalSpp", samples_per_pixel)
+            #     carb_settings.set_int(
+            #         "/rtx/pathtracing/useDirectLightingCache", False
+            #     )
+            # carb_settings.set_bool("/rtx/pathtracing/optixDenoiser/enabled", True)
+
             if samples_per_pixel is not None:
                 carb_settings.set_int("/rtx/pathtracing/spp", samples_per_pixel)
-                carb_settings.set_int("/rtx/pathtracing/totalSpp", samples_per_pixel)
-                carb_settings.set_int(
-                    "/rtx/pathtracing/useDirectLightingCache", False
-                )
+                # Cap accumulation well above spp so static scenes (between episodes, paused sim)
+                # converge over multiple renders. In dynamic frames you still only get spp/frame.
+                carb_settings.set_int("/rtx/pathtracing/totalSpp", max(samples_per_pixel * 16, 64))
+
+                # Don't reset accumulator every time animation time ticks — lets static periods converge.
+            carb_settings.set_bool("/rtx/resetPtAccumOnAnimTimeChange", False)
+
+            # Sampling caches: ~10–20% speedup, off by default in OG.
+            carb_settings.set_bool("/rtx/pathtracing/lightcache/cached/enabled", True)
+            carb_settings.set_bool("/rtx/pathtracing/cached/enabled", True)
+
+            # Default is 32/16 — overkill for interior scenes and the dominant cost driver.
+            carb_settings.set_int("/rtx/pathtracing/maxBounces", 6)
+            carb_settings.set_int("/rtx/pathtracing/maxSpecularAndTransmissionBounces", 6)
+
+            # Firefly clamp — prevents single bright samples from blowing up at low SPP.
+            carb_settings.set_float("/rtx/pathtracing/fireflyFilter/maxIntensityPerSample", 10000.0)
+            carb_settings.set_float("/rtx/pathtracing/fireflyFilter/maxIntensityPerSampleDiffuse", 50000.0)
+
+            # Denoiser is essential at low SPP.
             carb_settings.set_bool("/rtx/pathtracing/optixDenoiser/enabled", True)
 
-        #carb_settings.set("/persistent/omnihydra/useSceneGraphInstancing", True)
+            #carb_settings.set("/persistent/omnihydra/useSceneGraphInstancing", True)
         enable_interactive_path_tracing(carb_settings, samples_per_pixel=spp)
     elif rendering_mode == "r":
         carb_settings.set_string("/rtx/rendermode", "RaytracedLighting")
@@ -525,6 +549,22 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         og.log.info("Warmup finished.")
         return obs, rew, terminated, truncated, info
 
+    def enforce_min_main_object_mass(self, min_mass=0.05):
+        # Some dataset assets (cubes, spoons, etc.) ship with very low mass that lets
+        # the gripper push them around unrealistically. Floor the total mass at
+        # min_mass kg by uniformly scaling every link's mass. Fixed-base main objects
+        # (cabinets, faucets) are skipped — their dynamic mass is irrelevant.
+        for obj in self.main_objects:
+            if getattr(obj, "fixed_base", False):
+                continue
+            links = list(obj._links.values())
+            total = sum(link.mass for link in links)
+            if total <= 0 or total >= min_mass:
+                continue
+            scale = min_mass / total
+            for link in links:
+                link.mass = link.mass * scale
+
     def reset(self):
         obs, _ = self.omnigibson_env.reset()
         self.reset_joints()
@@ -535,6 +575,10 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
         for p in self.active_perturbations:
             self.supported_pertrubations[p]()
+        # B-HOBJ deliberately stress-tests low-mass dynamics; preserve its old behavior
+        # by only flooring mass when B-HOBJ is not active.
+        if "B-HOBJ" not in self.active_perturbations:
+            self.enforce_min_main_object_mass()
         if "V-AUG" in self.active_perturbations:
             self.v_aug_sigma = np.random.uniform(0.0, 2.5)
             self.v_aug_alpha = np.random.uniform(0.25, 1.5)

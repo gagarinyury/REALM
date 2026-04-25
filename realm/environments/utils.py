@@ -13,14 +13,30 @@ _current_dir = os.path.dirname(os.path.abspath(__file__))
 _yaml_path = os.path.join(_current_dir, "../config/tasks/task_progressions.yaml")
 
 def load_task_progressions():
+    # A YAML stage may be either a single check name or a list of check names. A list
+    # means "any of these checks passing satisfies this stage" (alternatives). The
+    # display name for an alternatives stage is the names joined with " | ".
     with open(_yaml_path, "r") as f:
         data = yaml.safe_load(f)
 
     task_progressions = {}
+    stage_checks = {}
     for task, stages in data.items():
-        task_progressions[task] = OrderedDict((stage, False) for stage in stages)
+        prog = OrderedDict()
+        checks_map = OrderedDict()
+        for stage in stages:
+            if isinstance(stage, list):
+                display = " | ".join(stage)
+                checks = list(stage)
+            else:
+                display = stage
+                checks = [stage]
+            prog[display] = False
+            checks_map[display] = checks
+        task_progressions[task] = prog
+        stage_checks[task] = checks_map
 
-    return task_progressions
+    return task_progressions, stage_checks
 
 
 def reset_joints(

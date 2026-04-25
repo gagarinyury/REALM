@@ -141,6 +141,12 @@ def compute_rot_diff_magnitude(initial_quat,final_quat):
     rotvec = r_diff.as_rotvec()
     return rotvec[2]
 
+def compute_rot_diff_magnitude_any_axis(initial_quat, final_quat):
+    r_initial = Rotation.from_quat(initial_quat)
+    r_final = Rotation.from_quat(final_quat)
+    r_diff = r_final * r_initial.inv()
+    return float(np.linalg.norm(r_diff.as_rotvec()))
+
 def _load_categories_from_yaml():
     yaml_path = os.path.join(os.path.dirname(__file__), "config/objects/categories.yaml")
     with open(yaml_path, 'r') as f:
