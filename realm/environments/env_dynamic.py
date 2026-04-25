@@ -108,7 +108,7 @@ def set_rendering_mode(rendering_mode, spp=8):
     carb_settings = lazy.carb.settings.get_settings()
     if rendering_mode == "pt":
         def enable_interactive_path_tracing(carb_settings, samples_per_pixel=8):
-            # carb_settings.set("/rtx/rendermode", "PathTracing")
+            carb_settings.set("/rtx/rendermode", "PathTracing")
             # if samples_per_pixel is not None:
             #     carb_settings.set_int("/rtx/pathtracing/spp", samples_per_pixel)
             #     carb_settings.set_int("/rtx/pathtracing/totalSpp", samples_per_pixel)
