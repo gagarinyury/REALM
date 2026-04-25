@@ -1,6 +1,5 @@
 from queue import Queue
 import datetime
-import time
 import os
 import random
 import csv
@@ -14,6 +13,7 @@ from omnigibson.macros import gm
 from realm.environments.env_dynamic import RealmEnvironmentDynamic
 from realm.inference import InferenceClient, extract_from_obs
 from realm.realm_logging import VideoRecorder, save_results, append_trajectory, append_video
+from realm.helpers import apply_blur_and_contrast
 
 
 
@@ -50,7 +50,7 @@ SUPPORTED_PERTURBATIONS = [
 ]
 
 
-def set_sim_config(rendering_mode=None, robot="DROID"):
+def set_sim_config(rendering_mode=None, robot="DROID", og_lite=False):
     if robot == "WidowX": # TODO: just read this from the yamls...
         gm.DEFAULT_SIM_STEP_FREQ = 5
         gm.DEFAULT_RENDERING_FREQ = 5
@@ -66,6 +66,12 @@ def set_sim_config(rendering_mode=None, robot="DROID"):
     gm.ENABLE_OBJECT_STATES = True # this needs to be on because push_switch task usees the ToggledOn state
     gm.RENDER_VIEWER_CAMERA=False
     gm.ENABLE_HQ_RENDERING = False if rendering_mode == "r" else True
+
+    if og_lite:
+        # Physics-only stepping; render only on explicit render_obs() calls
+        gm.ENABLE_VISUAL_UPDATES = False
+        gm.OBJECT_STATE_UPDATE_WHITELIST = ["ToggledOn"]
+        gm.RENDER_ON_STEP = False
 
     seed = 1234
     random.seed(seed)
@@ -91,14 +97,16 @@ def evaluate(
         no_record=False,
         no_render=False,
         rendering_mode=None,
+        spp=8,
         task_cfg_path=None,
-        robot="DROID"
+        robot="DROID",
+        og_lite=False,
+        n_pre_obs_renders=3,
+        max_render_interval=8,
 ):
-    start = time.perf_counter()
-    og.log.info(f"DEBUG: Begin eval: {time.perf_counter() - start:.4f}s")
     if rendering_mode is None:
         rendering_mode = "rt"
-    set_sim_config(rendering_mode=rendering_mode, robot=robot)
+    set_sim_config(rendering_mode=rendering_mode, robot=robot, og_lite=og_lite)
 
     # -------------------- Create the environment + client --------------------
     if task_cfg_path is None:
@@ -116,7 +124,6 @@ def evaluate(
 
     model_type = model_type # TODO: infer type from model name, rn this will just default to a pi model inference inside the client
     client = InferenceClient(model_type, host=host, port=port)
-    og.log.info(f"DEBUG: Client connected: {time.perf_counter() - start:.4f}s")
 
     env = RealmEnvironmentDynamic(
         config_path="/app/realm/config",
@@ -125,9 +132,9 @@ def evaluate(
         multi_view=multi_view,
         no_rendering=no_render,
         rendering_mode=rendering_mode,
+        spp=spp,
         robot=robot
     )
-    og.log.info(f"DEBUG: Env created: {time.perf_counter() - start:.4f}s")
 
     results = []
     start_repeat = 0
@@ -166,7 +173,15 @@ def evaluate(
 
         # -------------------- Rollout loop --------------------
         obs, _ = env.reset()
+
+        # Warmup must render every step so the renderer is in sync with physics
+        # after the robot settles.  In og_lite mode RENDER_ON_STEP is False, so
+        # we temporarily re-enable it for the duration of warmup.
+        if og_lite:
+            og.sim._render_on_step = True
         obs, rew, terminated, truncated, info = env.warmup(obs)
+        if og_lite:
+            og.sim._render_on_step = False
 
         t = 0
         task_progression = 0.0
@@ -181,14 +196,37 @@ def evaluate(
         is_env_col_active = False
         drops = 0
         was_grasping = False
+        steps_since_render = 0
 
         while t < max_steps and terminal_steps > 0:
-            base_im, base_depth, base_im_second, base_depth_second, wrist_im, robot_state, gripper_state = extract_from_obs(obs, robot_name=env.robot.name)
+            need_new_chunk = action_buffer.empty()
 
-            # Metrics collection
-            ee_pos, ee_rot = env.get_ee_pose()
-            ee_poses.append(ee_pos)
+            # On-demand rendering (og_lite): refresh obs at chunk boundaries, or
+            # as a stability fallback when max_render_interval steps have elapsed
+            # without a render (prevents the renderer from drifting too far from
+            # physics state, which can trigger segfaults).
+            need_render = need_new_chunk or (og_lite and steps_since_render >= max_render_interval)
+            if og_lite and need_render:
+                # Flush IsaacSim's rendering pipeline before capturing the
+                # observation.  After N blind physics steps the scene state has
+                # changed; extra render() calls propagate those changes through
+                # the renderer before we read the sensors.
+                for _ in range(n_pre_obs_renders):
+                    og.sim.render()
+                obs, _ = env.omnigibson_env.render_obs()
+                steps_since_render = 0
+                if "V-AUG" in env.active_perturbations:
+                    obs = apply_blur_and_contrast(obs, env.v_aug_sigma, env.v_aug_alpha)
 
+            # Image + robot-state extraction: only needed at chunk boundaries
+            # (where inference will run). Fallback renders refresh obs but images
+            # are not needed when inference is not running.
+            if not og_lite or need_new_chunk:
+                base_im, base_depth, base_im_second, base_depth_second, wrist_im, robot_state, gripper_state = extract_from_obs(obs, robot_name=env.robot.name)
+
+            # Physics-based metrics: run every step regardless of rendering mode.
+            # check_collisions() and check_grasp_condition() query physics contacts,
+            # not camera data, so stale obs is fine in og_lite mode.
             is_self_col, is_env_col = env.check_collisions()
             if is_self_col and not is_self_col_active:
                 collisions_self += 1
@@ -213,7 +251,11 @@ def evaluate(
                     drops += 1
             was_grasping = is_grasping
 
-            if action_buffer.empty():
+            # Cartesian metrics: ee_pose is cheap (reads physics, no render needed)
+            ee_pos, ee_rot = env.get_ee_pose()
+            ee_poses.append(ee_pos)
+
+            if need_new_chunk:
                 # Compute robot-relative cartesian position for models that need it (e.g. DreamZero)
                 _ee_pos = ee_pos.cpu().numpy() if hasattr(ee_pos, 'cpu') else np.array(ee_pos)
                 _ee_rot = ee_rot.cpu().numpy() if hasattr(ee_rot, 'cpu') else np.array(ee_rot)
@@ -237,10 +279,17 @@ def evaluate(
                 else:
                     assert len(pred_action_chunk.shape) <= 2, f"Unsupported number of dimensions in action chunk with shape: {pred_action_chunk.shape}. The chunk is expected to be 2D."
 
-            if not no_record:
+            # Video: in og_lite mode record one frame per chunk (at render point)
+            if not no_record and (not og_lite or need_new_chunk):
                 video_recorder.add_frame(base_im, wrist_im, base_im_second)
 
-            qpos.append(np.concatenate((robot_state, np.atleast_1d(np.array(gripper_state)))))
+            # qpos: in og_lite mode read fresh joint positions directly from physics
+            if og_lite:
+                fresh_proprio, _ = env.robot.get_proprioception()
+                fresh_proprio_np = fresh_proprio.cpu().numpy()
+                qpos.append(np.concatenate((fresh_proprio_np[:7], np.atleast_1d(np.array(fresh_proprio_np[7] / 0.05)))))
+            else:
+                qpos.append(np.concatenate((robot_state, np.atleast_1d(np.array(gripper_state)))))
 
             action = action_buffer.get()
             actions.append(action)
@@ -258,7 +307,19 @@ def evaluate(
             # new_gripper_state = np.atleast_1d(np.array(new_gripper_state))
             # new_action = np.concatenate((new_action, new_gripper_state))
 
-            obs, curr_task_progression, terminated, truncated, info = env.step(new_action)
+            if og_lite:
+                env.omnigibson_env.step_blind(new_action)
+                # ToggledOn (push_switch) requires CAN_TOGGLE_STEPS=5 consecutive per-step updates
+                # where the finger overlaps the button. step_blind skips _non_physics_step(), so
+                # the counter would never accumulate across the 8-step blind chunk without this call.
+                # ENABLE_VISUAL_UPDATES=False and OBJECT_STATE_UPDATE_WHITELIST=["ToggledOn"]
+                # ensure this is cheap.
+                og.sim._non_physics_step()
+                # Task progression is computed from the rendered obs at the start of each chunk;
+                # carry the last known value for blind intermediate steps.
+                curr_task_progression = env.recompute_task_progression(obs) if need_new_chunk else task_progression
+            else:
+                obs, curr_task_progression, terminated, truncated, info = env.step(new_action)
 
             if curr_task_progression > task_progression:
                 task_progression = curr_task_progression
@@ -267,10 +328,8 @@ def evaluate(
                 binary_success = True
             if task_progression >= 1.0 or binary_success:
                 terminal_steps -= 1
+            steps_since_render += 1
             t += 1
-
-        og.log.info(f"DEBUG: Run finished: {time.perf_counter() - start:.4f}s")
-        # ------------------------------------------------------------------------------
 
         # Metrics calculation
         dt = 1.0 / 15.0  # Control freq is 15Hz by default
@@ -364,8 +423,6 @@ def evaluate(
 
         results_filename = save_results(results, log_dir + "/reports", task, perturbations[0], filename=results_filename)
 
-    # ------------------------------------------------------------------------------
     save_results(results, log_dir+"/reports", task, perturbations[0])
     og.log.info("Done!")
-    og.log.info(f"DEBUG: Done: {time.perf_counter() - start:.4f}s")
 
