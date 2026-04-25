@@ -193,6 +193,11 @@ Benevolence_1_int:
 
 IMPACT:
   default:
+    x_min: -0.25
+    x_max: 0.20
+    y_min: -0.40
+    y_max: 0.25
+    z: 0.77
     pos: [-0.45, 0, 0.73] #0.71]
     rot: [0, 0, 0]
   empty:
