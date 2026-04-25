@@ -3,21 +3,16 @@ from omnigibson.macros import gm
 from omnigibson.utils.asset_utils import get_available_og_scenes
 
 import omnigibson.utils.transform_utils as T
-import sys
 import numpy as np
 import torch as th
-import math
-from moviepy.video.io.ImageSequenceClip import ImageSequenceClip
 
 USE_DROID_WITH_BASE = True
 if USE_DROID_WITH_BASE:
-    from realm.robots.droid_arm_mounted import DROID
+    pass
 else:
-    from realm.robots.droid_arm import DROID
+    pass
 
 from omnigibson.controllers import REGISTERED_CONTROLLERS
-from realm.helpers import flip_pose_pointing_down
-from realm.robots.droid_joint_controller import IndividualJointPDController
 from realm.robots.droid_ee_controller import DroidEndEffectorController
 if "CustomJointController" not in REGISTERED_CONTROLLERS:
     REGISTERED_CONTROLLERS["EEController"] = DroidEndEffectorController #IndividualJointPDController

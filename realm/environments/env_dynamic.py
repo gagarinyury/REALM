@@ -2,11 +2,10 @@ import math
 import numpy as np
 import torch
 import yaml
-import random
 import copy
 import os
 
-from realm.environments.env_base import RealmEnvironmentBase, TASK_PROGRESS_RUBRICS
+from realm.environments.env_base import RealmEnvironmentBase
 from realm.environments.perturbations.default import default as _pert_default
 from realm.environments.perturbations.v_light import v_light as _pert_v_light
 from realm.environments.perturbations.v_view import v_view as _pert_v_view
@@ -18,17 +17,13 @@ from realm.environments.perturbations.sb_vrb import sb_vrb as _pert_sb_vrb
 from realm.environments.perturbations.vb_pose import vb_pose as _pert_vb_pose
 from realm.environments.perturbations.vb_mobj import vb_mobj as _pert_vb_mobj
 from realm.environments.perturbations.vsb_nobj import vsb_nobj as _pert_vsb_nobj
-from realm.robots.widowx import WidowX
-from realm.robots.ur import UR
+from realm.robots.widowx import WidowX  # noqa: F401  # OmniGibson registration import
+from realm.robots.ur import UR  # noqa: F401  # OmniGibson registration import
 from realm.helpers import (
     calculate_new_camera_pose_mixed_rotations,
-    add_rotation_noise,
     get_non_colliding_positions_for_objects,
     apply_blur_and_contrast,
     get_non_droid_categories,
-    get_droid_categories_by_theme,
-    get_objects_by_names,
-    get_default_objects_cfg,
     robot_to_world,
     world_to_robot,
 )
@@ -36,17 +31,15 @@ from realm.helpers import (
 import omnigibson as og
 import omnigibson.utils.transform_utils as omnigibson_transform_utils
 import omnigibson.lazy as lazy
-from omnigibson.objects import DatasetObject, PrimitiveObject, USDObject
-from omnigibson.utils.asset_utils import get_all_object_category_models
+from omnigibson.objects import DatasetObject
 from omnigibson.utils.asset_utils import get_all_object_models
 from omnigibson.utils.usd_utils import create_joint
-from omnigibson.prims.joint_prim import JointPrim
 from scipy.spatial.transform import Rotation as R
 
 
 
 MISSING_PERTURBATIONS = ["V-OBJ", "VB-ISC", "VS-PROP", "SB-ADV", "SB-SMO"]
-SUPPORTED_TASK_TYPES = ["put", "pick", "rotate", "push", "stack", "open_drawer", "close_drawer"]
+SUPPORTED_TASK_TYPES = ["put", "pick", "rotate", "push", "stack", "open_drawer", "close_drawer", "pour"]
 SKILL_COMPATIBILITY_MATRIX = {
     "put": ["pick", "rotate", "stack"],
     "push": [],  # ["put", "pick", "rotate", "stack"],
@@ -54,7 +47,8 @@ SKILL_COMPATIBILITY_MATRIX = {
     "rotate": ["put", "pick", "stack"],
     "stack": ["put", "pick", "rotate"],
     "open": ["close"],
-    "close": ["open"]
+    "close": ["open"],
+    "pour": ["pick"],
 }
 DEFAULT_RESET_JOINTPOS = np.array([0, -1 / 5 * np.pi, 0, -4 / 5 * np.pi, 0, 3 / 5 * np.pi, 0.0])
 DROID_BASE_HEIGHT = 0.86244
@@ -111,21 +105,88 @@ def _panda_fk(q):
     return m[:3, 3].copy(), _R.from_matrix(m[:3, :3]).as_quat()
 
 
-def set_rendering_mode(rendering_mode):
+def configure_pour_macros():
+    # The pour task requires GPU dynamics + HQ rendering for fluid particles. Must
+    # be set before the simulator is initialized; safe to call multiple times.
+    from omnigibson.macros import gm
+    gm.USE_GPU_DYNAMICS = True
+    gm.ENABLE_OBJECT_STATES = True
+    gm.ENABLE_HQ_RENDERING = True
+    _patch_fluid_isosurface_fps_check()
+
+
+def _patch_fluid_isosurface_fps_check():
+    # OmniGibson's fluid-isosurface init asserts a 60 FPS minimum, but the underlying
+    # carb settings work fine below that. Replace the helper with a copy that applies
+    # all the same settings minus the assert. Idempotent.
+    import omnigibson.systems.micro_particle_system as mps
+
+    if getattr(mps.set_carb_settings_for_fluid_isosurface, "_realm_patched", False):
+        return
+
+    def _patched():
+        isregistry = lazy.carb.settings.acquire_settings_interface()
+        d_options = isregistry.get_as_int("persistent/app/viewport/displayOptions")
+        d_options &= ~(1 << 6 | 1 << 8)
+        isregistry.set_int("persistent/app/viewport/displayOptions", d_options)
+        isregistry.set_int(lazy.omni.physx.bindings._physx.SETTING_NUM_THREADS, 8)
+        isregistry.set_bool(lazy.omni.physx.bindings._physx.SETTING_UPDATE_VELOCITIES_TO_USD, True)
+        isregistry.set_bool(lazy.omni.physx.bindings._physx.SETTING_UPDATE_PARTICLES_TO_USD, True)
+        isregistry.set_int(lazy.omni.physx.bindings._physx.SETTING_MIN_FRAME_RATE, 60)
+        isregistry.set_bool("rtx-defaults/pathtracing/lightcache/cached/enabled", False)
+        isregistry.set_bool("rtx-defaults/pathtracing/cached/enabled", False)
+        isregistry.set_int("rtx-defaults/pathtracing/fireflyFilter/maxIntensityPerSample", 10000)
+        isregistry.set_int("rtx-defaults/pathtracing/fireflyFilter/maxIntensityPerSampleDiffuse", 50000)
+        isregistry.set_float("rtx-defaults/pathtracing/optixDenoiser/blendFactor", 0.09)
+        isregistry.set_int("rtx-defaults/pathtracing/aa/op", 2)
+        isregistry.set_int("rtx-defaults/pathtracing/maxBounces", 32)
+        isregistry.set_int("rtx-defaults/pathtracing/maxSpecularAndTransmissionBounces", 16)
+        isregistry.set_int("rtx-defaults/post/dlss/execMode", 1)
+        isregistry.set_int("rtx-defaults/translucency/maxRefractionBounces", 12)
+
+    _patched._realm_patched = True
+    mps.set_carb_settings_for_fluid_isosurface = _patched
+
+
+def set_rendering_mode(rendering_mode, spp=8):
     carb_settings = lazy.carb.settings.get_settings()
     if rendering_mode == "pt":
         def enable_interactive_path_tracing(carb_settings, samples_per_pixel=8):
             carb_settings.set("/rtx/rendermode", "PathTracing")
+            # if samples_per_pixel is not None:
+            #     carb_settings.set_int("/rtx/pathtracing/spp", samples_per_pixel)
+            #     carb_settings.set_int("/rtx/pathtracing/totalSpp", samples_per_pixel)
+            #     carb_settings.set_int(
+            #         "/rtx/pathtracing/useDirectLightingCache", False
+            #     )
+            # carb_settings.set_bool("/rtx/pathtracing/optixDenoiser/enabled", True)
+
             if samples_per_pixel is not None:
                 carb_settings.set_int("/rtx/pathtracing/spp", samples_per_pixel)
-                carb_settings.set_int("/rtx/pathtracing/totalSpp", samples_per_pixel)
-                carb_settings.set_int(
-                    "/rtx/pathtracing/useDirectLightingCache", False
-                )
+                # Cap accumulation well above spp so static scenes (between episodes, paused sim)
+                # converge over multiple renders. In dynamic frames you still only get spp/frame.
+                carb_settings.set_int("/rtx/pathtracing/totalSpp", max(samples_per_pixel * 16, 64))
+
+                # Don't reset accumulator every time animation time ticks — lets static periods converge.
+            carb_settings.set_bool("/rtx/resetPtAccumOnAnimTimeChange", False)
+
+            # Sampling caches: ~10–20% speedup, off by default in OG.
+            carb_settings.set_bool("/rtx/pathtracing/lightcache/cached/enabled", True)
+            carb_settings.set_bool("/rtx/pathtracing/cached/enabled", True)
+
+            # Default is 32/16 — overkill for interior scenes and the dominant cost driver.
+            carb_settings.set_int("/rtx/pathtracing/maxBounces", 6)
+            carb_settings.set_int("/rtx/pathtracing/maxSpecularAndTransmissionBounces", 6)
+
+            # Firefly clamp — prevents single bright samples from blowing up at low SPP.
+            carb_settings.set_float("/rtx/pathtracing/fireflyFilter/maxIntensityPerSample", 10000.0)
+            carb_settings.set_float("/rtx/pathtracing/fireflyFilter/maxIntensityPerSampleDiffuse", 50000.0)
+
+            # Denoiser is essential at low SPP.
             carb_settings.set_bool("/rtx/pathtracing/optixDenoiser/enabled", True)
 
-        #carb_settings.set("/persistent/omnihydra/useSceneGraphInstancing", True)
-        enable_interactive_path_tracing(carb_settings, samples_per_pixel=8)
+            #carb_settings.set("/persistent/omnihydra/useSceneGraphInstancing", True)
+        enable_interactive_path_tracing(carb_settings, samples_per_pixel=spp)
     elif rendering_mode == "r":
         carb_settings.set_string("/rtx/rendermode", "RaytracedLighting")
         carb_settings.set_bool("/rtx/translucency/enabled", True)
@@ -158,6 +219,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         no_rendering: bool = False,
         multi_view: bool = False,
         rendering_mode: str = "rt",
+        spp: int = 8,
         robot: str = "DROID"
     ) -> None:
         assert not (multi_view and no_rendering), f"Multi-view rendering was enabled during no_rendering mode. Either one is likely a mistake."
@@ -167,6 +229,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         self.multi_view = multi_view
         self.no_rendering = no_rendering
         self.rendering_mode = rendering_mode
+        self.spp = spp
         self.config_path = config_path
         self.scene_model = scene_model
         self.scene_part = scene_part
@@ -196,9 +259,9 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             assert perturbation in self.supported_pertrubations.keys()
 
         if self.use_droid_with_base:
-            from realm.robots.droid_arm_mounted import DROID
+            from realm.robots.droid_arm_mounted import DROID  # noqa: F401  # OmniGibson registration import
         else:
-            from realm.robots.droid_arm import DROID
+            from realm.robots.droid_arm import DROID  # noqa: F401  # OmniGibson registration import
 
         camera_extrinsics_path = f"{self.config_path}/env/external_sensors/camera_extrinsics.yaml"
         self.cfg_camera_extrinsics = yaml.load(open(camera_extrinsics_path, "r"), Loader=yaml.FullLoader)
@@ -209,6 +272,11 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         assert "position" in mo_cfgs[0], "mo must have a specified position"
         if "SB-NOUN" in self.active_perturbations and cfg["task_type"] == "push":
             raise NotImplementedError() # TODO: move this to some compatibility matrix / exclusion list
+
+        if cfg["task_type"] == "pour":
+            assert len(to_cfgs) == 1, "pour task requires exactly one target object"
+            configure_pour_macros()
+        self.water_system = None
 
         if common_freq is not None:
             cfg["env"]["rendering_frequency"] = common_freq
@@ -248,7 +316,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         self.update_robot_physics()
         self.apply_scene_fixes_from_cfg()
         self.disable_visual_toggles()
-        set_rendering_mode(rendering_mode)
+        set_rendering_mode(rendering_mode, spp=self.spp)
 
         super().__init__(
             main_objects=self.main_objects,
@@ -526,9 +594,129 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             #         f"fk_pos_initial={ee_cmd}, fk_pos_now={fk_pos}"
             #     )
 
+        if self.task_type == "pour":
+            self._fill_pour_source()
+
         self.mo_pos_orig, self.mo_rot_orig = self.main_objects[0].get_position_orientation()
         og.log.info("Warmup finished.")
         return obs, rew, terminated, truncated, info
+
+    def _fill_pour_source(self, method="meta_link"):
+        # Dispatcher for filling the source object with water. Default is
+        # "meta_link", which uses the asset's `fillable` meta-link via
+        # OmniGibson's ContainedParticles state — accurate for non-cylindrical
+        # interiors (narrow-necked bottles, vases, etc.). The "aabb" path is
+        # kept for reference: it spawns a cylinder of particles inside the AABB
+        # and works for uniform open-topped vessels but penetrates the wall on
+        # narrow-necked shapes. Both methods set self.water_system so
+        # check_pour() works either way.
+        source = self.main_objects[0]
+        water_system = self.omnigibson_env.scene.get_system("water")
+        self.water_system = water_system
+
+        if water_system.n_particles > 0:
+            water_system.remove_all_particles()
+
+        if method == "aabb":
+            n = self._spawn_water_aabb_cylinder(source, water_system)
+        elif method == "meta_link":
+            n = self._spawn_water_meta_link(source, water_system)
+        else:
+            raise ValueError(f"Unknown pour fill method: {method!r}")
+
+        if n == 0:
+            return
+
+        # Settle the fluid so it conforms to the source's interior before the
+        # policy starts acting. Hold the EE pose during settling so the robot
+        # doesn't drift.
+        if self.ee_control:
+            ee_pos, ee_quat = self.get_ee_pose()
+            ee_pos_np = ee_pos.cpu().numpy() if hasattr(ee_pos, "cpu") else np.array(ee_pos)
+            ee_euler = R.from_quat(ee_quat.cpu().numpy()).as_euler("xyz")
+            ee_cmd = self._world2robot(np.concatenate([ee_pos_np, ee_euler]))
+            hold_action = np.concatenate([ee_cmd, [1.0]])
+        else:
+            hold_action = np.concatenate([self.reset_qpos[:7], [1.0]])
+        for _ in range(60):
+            self.omnigibson_env.step(hold_action)
+
+        og.log.info(f"Pour source {source.name} filled with {n} water particles via '{method}'.")
+
+    def _spawn_water_aabb_cylinder(self, source, water_system, fill_radius_frac=0.25, z_low_frac=0.15, z_high_frac=1.0):
+        # Reference-only AABB-based cylinder fill (no longer the default; kept
+        # in case the meta-link path triggers liquid/rigid-body collision
+        # blowups and we need to fall back). Spawns particles in a cylinder
+        # whose radius is `fill_radius_frac` of the smaller XY extent of the
+        # AABB, between `z_low_frac` and `z_high_frac` of the AABB height.
+        # Works for open-topped uniform-cross-section vessels (cups, glasses,
+        # mugs); penetrates the wall on narrow-necked containers.
+        aabb_low, aabb_high = source.aabb
+        aabb_extent = aabb_high - aabb_low
+        cx = ((aabb_low[0] + aabb_high[0]) / 2.0).item()
+        cy = ((aabb_low[1] + aabb_high[1]) / 2.0).item()
+
+        spacing = water_system.particle_particle_rest_distance
+        r = min(aabb_extent[0].item(), aabb_extent[1].item()) * fill_radius_frac
+        z_bottom = aabb_low[2].item() + aabb_extent[2].item() * z_low_frac
+        z_top = aabb_low[2].item() + aabb_extent[2].item() * z_high_frac
+
+        xs = torch.arange(cx - r, cx + r, spacing)
+        ys = torch.arange(cy - r, cy + r, spacing)
+        zs = torch.arange(z_bottom, z_top, spacing)
+        if len(xs) == 0 or len(ys) == 0 or len(zs) == 0:
+            og.log.warning(f"Pour source {source.name} too small to fill with water particles")
+            return 0
+
+        grid = torch.stack(torch.meshgrid(xs, ys, zs, indexing="ij"), dim=-1).reshape(-1, 3)
+        dist_sq = (grid[:, 0] - cx) ** 2 + (grid[:, 1] - cy) ** 2
+        positions = grid[dist_sq < (r ** 2)]
+
+        if len(positions) == 0:
+            og.log.warning(f"Pour source {source.name}: no valid positions for water fill")
+            return 0
+
+        water_system.generate_particles(positions=positions)
+        return len(positions)
+
+    def _spawn_water_meta_link(self, source, water_system, max_samples=2000):
+        # Default fill path. Geometry-aware: samples inside the asset's
+        # `fillable` meta-link via the ContainedParticles state, so the cavity
+        # shape (narrow necks, asymmetric profiles) is respected. Falls back to
+        # the reference AABB cylinder if the asset doesn't carry a fillable
+        # meta-link.
+        contained_state = source.states.get(og.object_states.ContainedParticles)
+        if contained_state is None or getattr(contained_state, "link", None) is None:
+            og.log.warning(
+                f"Pour source {source.name} has no fillable meta-link; "
+                f"falling back to AABB cylinder fill."
+            )
+            return self._spawn_water_aabb_cylinder(source, water_system)
+
+        n_before = water_system.n_particles
+        water_system.generate_particles_from_link(
+            obj=source,
+            link=contained_state.link,
+            check_contact=True,
+            max_samples=max_samples,
+        )
+        return water_system.n_particles - n_before
+
+    def enforce_min_main_object_mass(self, min_mass=0.05):
+        # Some dataset assets (cubes, spoons, etc.) ship with very low mass that lets
+        # the gripper push them around unrealistically. Floor the total mass at
+        # min_mass kg by uniformly scaling every link's mass. Fixed-base main objects
+        # (cabinets, faucets) are skipped — their dynamic mass is irrelevant.
+        for obj in self.main_objects:
+            if getattr(obj, "fixed_base", False):
+                continue
+            links = list(obj._links.values())
+            total = sum(link.mass for link in links)
+            if total <= 0 or total >= min_mass:
+                continue
+            scale = min_mass / total
+            for link in links:
+                link.mass = link.mass * scale
 
     def reset(self):
         obs, _ = self.omnigibson_env.reset()
@@ -540,6 +728,10 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
         for p in self.active_perturbations:
             self.supported_pertrubations[p]()
+        # B-HOBJ deliberately stress-tests low-mass dynamics; preserve its old behavior
+        # by only flooring mass when B-HOBJ is not active.
+        if "B-HOBJ" not in self.active_perturbations:
+            self.enforce_min_main_object_mass()
         if "V-AUG" in self.active_perturbations:
             self.v_aug_sigma = np.random.uniform(0.0, 2.5)
             self.v_aug_alpha = np.random.uniform(0.25, 1.5)

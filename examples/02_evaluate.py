@@ -20,11 +20,15 @@ if __name__ == "__main__":
     parser.add_argument('--run_id', type=str, required=False, default=None)
     parser.add_argument('--log_dir', type=str, required=False, default=None)
     parser.add_argument('--rendering_mode', type=str, required=False, default=None, help='Omnigibson rendering mode (pt, rt, r)')
+    parser.add_argument('--spp', type=int, required=False, default=8, help='Samples per pixel for pt rendering mode')
     parser.add_argument('--multi-view', action='store_true', help='Enable second external camera')
     parser.add_argument('--resume', action='store_true', help='Resume from existing run report if found')
     parser.add_argument('--no_record', action='store_true', help='Do not record videos from runs.')
     parser.add_argument('--no_render', action='store_true', help='Disable rendering completely')
     parser.add_argument('--robot', type=str, required=False, default="DROID", help='Robot type')
+    parser.add_argument('--og_lite', action='store_true', help='Enable OG-lite on-demand rendering (render only when a new action chunk is needed, physics-only steps in between)')
+    parser.add_argument('--n_pre_obs_renders', type=int, required=False, default=3, help='(og_lite) Number of render() flushes before capturing the observation for inference')
+    parser.add_argument('--max_render_interval', type=int, required=False, default=8, help='(og_lite) Force a render flush after this many steps without one, even mid-chunk, to prevent renderer drift/segfaults')
     args = parser.parse_args()
 
     assert args.model_name is not None
@@ -52,8 +56,12 @@ if __name__ == "__main__":
         no_record=args.no_record,
         no_render=args.no_render,
         rendering_mode=args.rendering_mode,
+        spp=args.spp,
         task_cfg_path=args.task_cfg_path,
-        robot=args.robot
+        robot=args.robot,
+        og_lite=args.og_lite,
+        n_pre_obs_renders=args.n_pre_obs_renders,
+        max_render_interval=args.max_render_interval,
     )
     og.shutdown()
     sys.exit(0)

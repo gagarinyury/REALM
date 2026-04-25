@@ -10,7 +10,7 @@ pick:
   - LIFT_LARGE
 rotate:
   - REACH
-  - GRASP
+  - [GRASP, TOUCHED_AND_DISPLACED]
   - ROTATED
 push:
   - REACH
@@ -39,7 +39,7 @@ pour:
   - GRASP
   - LIFT_SLIGHT
   - MOVE_CLOSE
-  - POUR
+  - POURED
 turn_faucet:
   - REACH
   - TOUCH_AND_MOVE_JOINT
