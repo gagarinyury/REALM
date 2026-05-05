@@ -59,13 +59,13 @@ distractors:
       category: "corkscrew"
       model: "gqocna"
       bounding_box: [ 0.02, 0.09, 0.11 ]
-      relative_bbox_position: [0.325, 0.075, 0.03 ]
+      relative_bbox_position: [0.25, 0.175, 0.055 ]
     - type: "DatasetObject"
       name: "wineglass"
       category: "wineglass"
       model: "hxccge"
       bounding_box: [ 0.08, 0.08, 0.16  ]
-      relative_bbox_position: [ 0.225, 0.05, 0.04 ]
+      relative_bbox_position: [ 0.15, 0.175, 0.04 ]
     - type: "DatasetObject"
       name: "bottle_of_wine"
       category: "bottle_of_wine"
