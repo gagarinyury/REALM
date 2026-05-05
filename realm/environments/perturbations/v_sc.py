@@ -32,22 +32,35 @@ def v_sc(env: "RealmEnvironmentDynamic") -> None:
                 if "bounding_box" not in cfg:
                     cfg["bounding_box"] = scene_obj.aabb_extent.tolist()
 
-    env.cfg["objects"] = None
-    num_distractors = len(obj_cfgs) - num_mo_to
+    # Scene assets (loaded from scene_definition.yaml) sit alongside task
+    # distractors in cfg["objects"] but must be excluded both from random
+    # placement and from the post-perturbation distractor list — their authored
+    # absolute positions are not tracked in init_poses, which would otherwise
+    # break replace_obj's pose lookup below.
+    scene_names = set(getattr(env, "scene_obj_names", []))
+    num_distractors = sum(1 for c in obj_cfgs[num_mo_to:] if c["name"] not in scene_names)
 
+    env.cfg["objects"] = None
     env.cfg["objects"] = get_non_colliding_positions_for_objects(
         xmin=env.spawn_bbox[0],
         xmax=env.spawn_bbox[1],
         ymin=env.spawn_bbox[2],
         ymax=env.spawn_bbox[3],
         z=env.spawn_bbox[4],
-        obj_cfg=obj_cfgs[:num_mo_to + num_distractors],
-        objects_to_skip=[obj.name for obj in env.target_objects + env.main_objects],
+        obj_cfg=obj_cfgs,
+        objects_to_skip=(
+            [obj.name for obj in env.target_objects + env.main_objects]
+            + list(scene_names)
+        ),
         main_object_names=[o["name"] for o in obj_cfgs[:num_mo_to]],
         maximum_dim=0.12,
     )
 
-    env.distractors = [env.omnigibson_env.scene.object_registry("name", dist["name"]) for dist in env.cfg["objects"][num_mo_to:]]
+    env.distractors = [
+        env.omnigibson_env.scene.object_registry("name", dist["name"])
+        for dist in env.cfg["objects"][num_mo_to:]
+        if dist["name"] not in scene_names
+    ]
 
     # TODO: check if this works properly in the edge cases where it should trigger
     if num_distractors < len(env.distractors):
