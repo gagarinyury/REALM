@@ -644,6 +644,15 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         if water_system.n_particles > 0:
             water_system.remove_all_particles()
 
+        # Snapshot the bottle pose before spawning. OmniGibson's contact filter
+        # in generate_particles_from_link uses sphere overlap at exactly
+        # particle_contact_offset, so particles end up flush against the
+        # interior wall — close enough that solver perturbations during
+        # settling create net impulses that can tip the source over. Pinning
+        # the source through settling lets the fluid find equilibrium without
+        # moving the bottle.
+        src_pos, src_quat = source.get_position_orientation()
+
         if method == "aabb":
             n = self._spawn_water_aabb_cylinder(source, water_system)
         elif method == "meta_link":
@@ -666,7 +675,13 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         else:
             hold_action = np.concatenate([self.reset_qpos[:7], [1.0]])
         for _ in range(60):
+            source.set_position_orientation(position=src_pos, orientation=src_quat)
+            source.keep_still()
             self.omnigibson_env.step(hold_action)
+        # Final restore: the last step may have perturbed the source slightly;
+        # leave the policy with the exact pre-fill pose and zero velocity.
+        source.set_position_orientation(position=src_pos, orientation=src_quat)
+        source.keep_still()
 
         og.log.info(f"Pour source {source.name} filled with {n} water particles via '{method}'.")
 
@@ -746,6 +761,12 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                 link.mass = link.mass * scale
 
     def reset(self):
+        # Clear leftover liquid from the previous episode before the bottle
+        # teleports back. omnigibson_env.reset() does not purge fluid systems,
+        # so without this the new bottle pose lands on top of stale particles
+        # and wobbles (or tips) during warmup.
+        if self.water_system is not None and self.water_system.n_particles > 0:
+            self.water_system.remove_all_particles()
         obs, _ = self.omnigibson_env.reset()
         self.reset_joints()
 
