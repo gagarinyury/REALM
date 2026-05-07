@@ -291,7 +291,7 @@ class RealmEnvironmentBase:
         else:
             raise NotImplementedError()
 
-    def check_touched_and_displaced(self, obs, distance_threshold=0.01, rot_threshold=0.05):
+    def check_touched_and_displaced(self, obs, distance_threshold=0.03, rot_threshold=0.2618):
         # Touched by the gripper AND moved (translation) OR rotated (any axis) — useful
         # as an early-stage "the policy made meaningful contact" indicator that doesn't
         # depend on the displacement happening to be translational vs rotational.

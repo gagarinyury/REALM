@@ -34,7 +34,7 @@ class InferenceClient:
         else:
             raise NotImplementedError()
 
-    def infer(self, instruction, base_im, base_im_second, wrist_im, robot_state, gripper_state, use_base_im_second=False, ee_control=False, cartesian_position=None):
+    def infer(self, instruction, base_im, base_im_second, wrist_im, robot_state, gripper_state, use_base_im_second=False, ee_control=False, cartesian_position=None, bounding_box=None):
         if self.model_type == "debug":
             if ee_control:
                 pred_action_chunk = np.array([0.41402626, -0.13211727, 0.57253086, -3.09742367, 0.2580259, -0.24700592, -1])
@@ -120,6 +120,11 @@ class InferenceClient:
             base_im_second_resized = np.array(Image.fromarray(base_im_second).resize((320, 180)), dtype=np.uint8)
             wrist_im_resized = np.array(Image.fromarray(wrist_im).resize((320, 180)), dtype=np.uint8)
 
+            if bounding_box is None:
+                bounding_box = np.zeros((1, 4), dtype=np.float32)
+            else:
+                bounding_box = np.asarray(bounding_box, dtype=np.float32)
+
             obs_dict = {
                 "observation/exterior_image_0_left": base_im_resized,
                 "observation/exterior_image_1_left": base_im_second_resized,
@@ -127,6 +132,7 @@ class InferenceClient:
                 "observation/joint_position": np.array(robot_state, dtype=np.float32),
                 "observation/cartesian_position": np.array(cartesian_position, dtype=np.float32),
                 "observation/gripper_position": np.array(np.atleast_1d(gripper_state), dtype=np.float32),
+                "bbox": bounding_box,
                 "prompt": instruction
             }
 
