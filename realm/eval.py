@@ -247,10 +247,15 @@ def evaluate(
                     on_top = mo.states[og.object_states.OnTop].get_value(target)
                     if inside or on_top:
                         is_placed = True
-                elif hasattr(env, "task_type") and env.task_type == "pour":
+                elif hasattr(env, "task_type") and env.task_type == "pour_liquid":
                     # Releasing the source after a successful pour is goal-aligned,
                     # not a drop. Use the pour success check as the "placed" signal.
                     if env.check_pour(obs):
+                        is_placed = True
+                elif hasattr(env, "task_type") and env.task_type == "pour_proxy":
+                    # Same intent as pour_liquid: a goal-aligned release shouldn't
+                    # count as a drop. Use the foam-ball-in-target check.
+                    if env.check_pour_proxy(obs):
                         is_placed = True
 
                 if not is_placed:

@@ -39,7 +39,7 @@ from scipy.spatial.transform import Rotation as R
 
 
 MISSING_PERTURBATIONS = ["V-OBJ", "VB-ISC", "VS-PROP", "SB-ADV", "SB-SMO"]
-SUPPORTED_TASK_TYPES = ["put", "pick", "rotate", "push", "stack", "open_drawer", "close_drawer", "pour"]
+SUPPORTED_TASK_TYPES = ["put", "pick", "rotate", "push", "stack", "open_drawer", "close_drawer", "pour_liquid", "pour_proxy"]
 SKILL_COMPATIBILITY_MATRIX = {
     "put": ["pick", "rotate", "stack"],
     "push": [],  # ["put", "pick", "rotate", "stack"],
@@ -48,7 +48,8 @@ SKILL_COMPATIBILITY_MATRIX = {
     "stack": ["put", "pick", "rotate"],
     "open": ["close"],
     "close": ["open"],
-    "pour": ["pick", "put", "rotate", "stack"],
+    "pour_liquid": ["pick", "put", "rotate", "stack"],
+    "pour_proxy": ["pick", "put", "rotate", "stack"],
 }
 DEFAULT_RESET_JOINTPOS = np.array([0, -1 / 5 * np.pi, 0, -4 / 5 * np.pi, 0, 3 / 5 * np.pi, 0.0])
 DROID_BASE_HEIGHT = 0.86244
@@ -106,13 +107,23 @@ def _panda_fk(q):
 
 
 def configure_pour_macros():
-    # The pour task requires GPU dynamics + HQ rendering for fluid particles. Must
-    # be set before the simulator is initialized; safe to call multiple times.
+    # The pour_liquid task requires GPU dynamics + HQ rendering for fluid particles.
+    # Must be set before the simulator is initialized; safe to call multiple times.
     from omnigibson.macros import gm
     gm.USE_GPU_DYNAMICS = True
     gm.ENABLE_OBJECT_STATES = True
     gm.ENABLE_HQ_RENDERING = True
     _patch_fluid_isosurface_fps_check()
+
+
+def configure_pour_proxy_macros():
+    # The pour_proxy task uses a rigid foam_ball instead of fluid particles, so
+    # CPU dynamics is enough. We still want ENABLE_OBJECT_STATES so the Inside
+    # state used by check_pour_proxy is available. Must be set before sim init.
+    from omnigibson.macros import gm
+    gm.USE_GPU_DYNAMICS = False
+    gm.ENABLE_OBJECT_STATES = True
+    gm.ENABLE_HQ_RENDERING = False
 
 
 def _patch_fluid_isosurface_fps_check():
@@ -280,20 +291,49 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         if "SB-NOUN" in self.active_perturbations and cfg["task_type"] == "push":
             raise NotImplementedError() # TODO: move this to some compatibility matrix / exclusion list
 
-        if cfg["task_type"] == "pour":
-            assert len(to_cfgs) == 1, "pour task requires exactly one target object"
+        if cfg["task_type"] == "pour_liquid":
+            assert len(to_cfgs) == 1, "pour_liquid task requires exactly one target object"
             if rendering_mode == "r":
                 raise NotImplementedError(
-                    "pour is incompatible with rendering_mode='r' (rasterized): "
+                    "pour_liquid is incompatible with rendering_mode='r' (rasterized): "
                     "the fluid isosurface needs the RTX path. Use 'rt' or 'pt'."
                 )
             from omnigibson.macros import gm
             if not gm.ENABLE_VISUAL_UPDATES or not gm.RENDER_ON_STEP:
                 raise NotImplementedError(
-                    "pour is incompatible with og_lite mode: fluid particles "
+                    "pour_liquid is incompatible with og_lite mode: fluid particles "
                     "require visual updates and render-on-step. Re-run with og_lite=False."
                 )
             configure_pour_macros()
+        elif cfg["task_type"] == "pour_proxy":
+            assert len(to_cfgs) == 1, "pour_proxy task requires exactly one target object"
+            # Explicitly CPU dynamics: no fluid particles, just rigid foam_balls.
+            configure_pour_proxy_macros()
+            # Procedurally inject N foam_ball distractors inside the source.
+            # Base Z = scene spawn-surface Z + source's relative bbox Z. Balls
+            # are stacked vertically with a small per-ball offset because at
+            # high counts (>~6) all-at-same-position spheres generate enormous
+            # PhysX corrective impulses that blast balls out through the
+            # convex-decomposition seams.
+            mo_pos = mo_cfgs[0]["position"]
+            surface_z = float(self.spawn_bbox[4]) if self.spawn_bbox is not None else 0.0
+            mo_relative_z = float(mo_cfgs[0]["relative_bbox_position"][2])
+            base_foam_z = surface_z + mo_relative_z + 0.03  # +3cm lift so balls don't intersect bottle base
+            ball_diameter = 0.01 * 2.0 / 3.0  # ~6.7mm; smaller so they don't get stuck in narrow necks
+            z_spacing = 0.0075  # tight column inside the bottle
+            n_foam_balls = 10
+            for i in range(n_foam_balls):
+                fb_cfg = {
+                    "type": "PrimitiveObject",
+                    "name": f"foam_ball_{i}",
+                    "primitive_type": "Sphere",
+                    "rgba": [0.85, 0.1, 0.1, 1.0],
+                    "bounding_box": [ball_diameter, ball_diameter, ball_diameter],
+                    "scale": [ball_diameter, ball_diameter, ball_diameter],
+                    "position": [float(mo_pos[0]), float(mo_pos[1]), base_foam_z + i * z_spacing],
+                }
+                cfg["objects"].append(fb_cfg)
+                dist_cfgs.append(fb_cfg)
         self.water_system = None
 
         if common_freq is not None:
@@ -317,6 +357,27 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         self.main_objects = [self.omnigibson_env.scene.object_registry("name", mo["name"]) for mo in mo_cfgs]
         self.target_objects = [self.omnigibson_env.scene.object_registry("name", to["name"]) for to in to_cfgs]
         self.distractors = [self.omnigibson_env.scene.object_registry("name", dist["name"]) for dist in dist_cfgs]
+
+        # For pour_proxy: foam_balls are spawned inside the source bottle.
+        # The default convexHull collision approximation makes the bottle's
+        # interior a solid blob, so the balls would be in penetration and the
+        # bottle would get blown away on first physics step. Switch the source
+        # to convexDecomposition to expose the actual hollow interior.
+        # Also set the foam_ball mass to 0.5 g per ball so debug scripts don't
+        # have to override it.
+        if self.cfg["task_type"] == "pour_proxy":
+            og.sim.stop()
+            for obj in self.main_objects:
+                for link in obj._links.values():
+                    for collision_mesh in link.collision_meshes.values():
+                        collision_mesh.set_collision_approximation("convexDecomposition")
+            foam_ball_mass_kg = 0.0005
+            for obj in self.distractors:
+                if obj is not None and "foam_ball" in obj.name:
+                    n_links = max(len(obj._links), 1)
+                    for link in obj._links.values():
+                        link.mass = foam_ball_mass_kg / n_links
+            og.sim.play()
 
         self.init_poses = {obj._relative_prim_path: { # using relative prim path as unique id
             "pos": obj.get_position_orientation()[0],
@@ -461,6 +522,11 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                     excluded_categories.append(obj["category"])
             distractors = self.sample_objects(num_objects=num_distractors, excluded_categories=excluded_categories)
 
+            # By default, YAML positions are authoritative — only the random
+            # distractors sampled for placement-altering perturbations (V-SC)
+            # should be placed by the helper. Everything else (main, target,
+            # YAML-defined distractors, immutables) is treated as pre-placed.
+            yaml_object_names = {o["name"] for o in obj_list}
             cfg["objects"] = get_non_colliding_positions_for_objects(
                 xmin=self.spawn_bbox[0],
                 xmax=self.spawn_bbox[1],
@@ -470,6 +536,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                 obj_cfg=obj_list + distractors,
                 max_attempts_per_object=25000,
                 main_object_names=[o["name"] for o in obj_list],
+                objects_to_skip=list(yaml_object_names),
             )
             cfg["objects"] += scene_obj_list
         else:
@@ -621,7 +688,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             #         f"fk_pos_initial={ee_cmd}, fk_pos_now={fk_pos}"
             #     )
 
-        if self.task_type == "pour":
+        if self.task_type == "pour_liquid":
             self._fill_pour_source()
 
         self.mo_pos_orig, self.mo_rot_orig = self.main_objects[0].get_position_orientation()

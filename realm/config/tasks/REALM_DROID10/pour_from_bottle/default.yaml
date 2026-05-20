@@ -3,7 +3,7 @@ task:
   termination_config: {}
   reward_config: {}
 
-task_type: "pour"
+task_type: "pour_proxy" #"pour"
 instruction: "pour the water from the bottle into the bowl"
 instruction_obj_to_replace: "bottle"
 instruction_target_to_replace: "bowl"
@@ -29,10 +29,11 @@ reset_joint_pos: [ 0.0055956,  -0.46229482, -0.10837201, -2.22445,   -0.02223617
 main_objects:
     - type: "DatasetObject"
       name: "cola_bottle"
-      category: "cola_bottle"
-      model: "oyqdtz"
+      category: "cola_bottle" #"reagent_bottle" #"soda_water_bottle" #"mug"
+      model: "oyqdtz" #"trtrsl" #"upfssc" #"ehnmxj"
       bounding_box: [0.07, 0.07, 0.22 ]
-      relative_bbox_position: [0.25, 0.4, 0.125]
+      relative_bbox_position: [0.425, 0.4, 0.15]
+      #relative_bbox_position: [0.25, 0.4, 0.125]
 #    - type: "DatasetObject"
 #      name: "water_glass_main"
 #      category: "water_glass"
@@ -50,10 +51,52 @@ target_objects:
       category: "bowl"
       model: "jpvcjv"
       bounding_box: [ 0.20, 0.20, 0.07 ]
-      relative_bbox_position: [0.2, 0.55, 0 ]
-
+      #relative_bbox_position: [0.7, 0.55, 0 ]
+      relative_bbox_position: [0.25, 0.43, 0 ]
 
 distractors:
+#    - type: "PrimitiveObject"
+#      name: "foam_ball"
+#      primitive_type: "Sphere"
+#      rgba: [ 0.85, 0.1, 0.1, 1.0 ]
+#      bounding_box: [ 0.01, 0.01, 0.01 ]
+#      scale: [ 0.01, 0.01, 0.01 ]
+#      relative_bbox_position: [0.425, 0.4, 0.25]
+#    - type: "PrimitiveObject"
+#      name: "foam_ball_1"
+#      primitive_type: "Sphere"
+#      rgba: [ 0.85, 0.1, 0.1, 1.0 ]
+#      bounding_box: [ 0.01, 0.01, 0.01 ]
+#      scale: [ 0.01, 0.01, 0.01 ]
+#      relative_bbox_position: [ 0.425, 0.4, 0.25 ]
+#    - type: "PrimitiveObject"
+#      name: "foam_ball_3"
+#      primitive_type: "Sphere"
+#      rgba: [ 0.85, 0.1, 0.1, 1.0 ]
+#      bounding_box: [ 0.01, 0.01, 0.01 ]
+#      scale: [ 0.01, 0.01, 0.01 ]
+#      relative_bbox_position: [0.425, 0.4, 0.25]
+#    - type: "PrimitiveObject"
+#      name: "foam_ball_4"
+#      primitive_type: "Sphere"
+#      rgba: [ 0.85, 0.1, 0.1, 1.0 ]
+#      bounding_box: [ 0.01, 0.01, 0.01 ]
+#      scale: [ 0.01, 0.01, 0.01 ]
+#      relative_bbox_position: [ 0.425, 0.4, 0.25 ]
+#    - type: "PrimitiveObject"
+#      name: "foam_ball_5"
+#      primitive_type: "Sphere"
+#      rgba: [ 0.85, 0.1, 0.1, 1.0 ]
+#      bounding_box: [ 0.01, 0.01, 0.01 ]
+#      scale: [ 0.01, 0.01, 0.01 ]
+#      relative_bbox_position: [0.425, 0.4, 0.25]
+#    - type: "PrimitiveObject"
+#      name: "foam_ball_6"
+#      primitive_type: "Sphere"
+#      rgba: [ 0.85, 0.1, 0.1, 1.0 ]
+#      bounding_box: [ 0.01, 0.01, 0.01 ]
+#      scale: [ 0.01, 0.01, 0.01 ]
+#      relative_bbox_position: [ 0.425, 0.4, 0.25 ]
     - type: "DatasetObject"
       name: "corkscrew"
       category: "corkscrew"

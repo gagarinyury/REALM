@@ -60,6 +60,7 @@ class RealmEnvironmentBase:
             "ROTATED": self.check_rotated,
             "PUSH": self.check_push,
             "MOVE_CLOSE": self.check_move_close_condition,
+            "MOVE_CLOSE_XY": self.check_move_close_xy_condition,
             "PLACE_INTO": self.check_place_condition,
             "PLACE_ONTO": self.check_place_onto_condition,
             "TOUCH_AND_MOVE_JOINT": self.check_touching_and_moved_mo_joint,
@@ -74,6 +75,7 @@ class RealmEnvironmentBase:
             "MOVE_JOINT_FULL": self.check_moved_mo_joint_full,
             "TOGGLED_ON": self.check_toggled_on_condition,
             "POURED": self.check_pour,
+            "POURED_PROXY": self.check_pour_proxy,
             "TOUCHED_AND_DISPLACED": self.check_touched_and_displaced,
         }
 
@@ -374,6 +376,24 @@ class RealmEnvironmentBase:
         distance = np.linalg.norm(pos1 - pos2)
         return distance < 0.125 #0.075 #TODO: adjust for size of receiver, this might not always be enough it seems
 
+    def check_move_close_xy_condition(self, obs):
+        # Planar (X/Y) proximity only — height-agnostic. For pouring: the source
+        # is held above the target while pouring, so Z distance is irrelevant;
+        # what matters is that the source is over the target footprint.
+        assert len(self.main_objects) == 1
+        assert len(self.target_objects) == 1
+
+        mo = self.main_objects[0]
+        pos1 = mo.get_position_orientation()[0]
+
+        target = self.target_objects[0]
+        pos2 = target.get_position_orientation()[0]
+
+        dx = float(pos1[0] - pos2[0])
+        dy = float(pos1[1] - pos2[1])
+        distance_xy = (dx * dx + dy * dy) ** 0.5
+        return distance_xy < 0.125
+
     def check_place_condition(self, obs):
         mo = self.main_objects[0]
         target = self.target_objects[0]
@@ -390,9 +410,9 @@ class RealmEnvironmentBase:
         return mo.states[og.object_states.ToggledOn].get_value()
 
     def check_pour(self, obs, min_particles=15):
-        # Counts liquid particles inside the target receptacle. The pour task seeds
-        # the source (main_object) with water in env_dynamic; success requires that
-        # enough particles end up inside the target's container volume.
+        # Counts liquid particles inside the target receptacle. The pour_liquid task
+        # seeds the source (main_object) with water in env_dynamic; success requires
+        # that enough particles end up inside the target's container volume.
         water_system = getattr(self, "water_system", None)
         if water_system is None or water_system.n_particles == 0:
             return False
@@ -406,4 +426,26 @@ class RealmEnvironmentBase:
         if hasattr(n_in, "item"):
             n_in = n_in.item()
         return int(n_in) >= min_particles
+
+    def check_pour_proxy(self, obs, min_balls_inside=2):
+        # Pour proxy: success when at least @min_balls_inside foam_balls
+        # (objects whose name contains 'foam_ball') end up Inside the target
+        # container. Looser than the strict all-balls-inside check so a few
+        # stuck/escaped balls don't block success. Avoids the fluid-particle
+        # setup of pour_liquid.
+        if not self.target_objects:
+            return False
+        target = self.target_objects[0]
+        foam_balls = []
+        for obj_list in (self.main_objects, self.target_objects, getattr(self, "distractors", [])):
+            for obj in obj_list:
+                if obj is not None and "foam_ball" in obj.name:
+                    foam_balls.append(obj)
+        if not foam_balls:
+            return False
+        n_inside = sum(
+            1 for fb in foam_balls
+            if bool(fb.states[og.object_states.Inside].get_value(target))
+        )
+        return n_inside >= min_balls_inside
 

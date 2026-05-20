@@ -49,11 +49,30 @@ def vb_pose(env: "RealmEnvironmentDynamic") -> None:
             max_attempts_per_object=25000 # TODO: this must be successful, careful what we do here...
         )
 
+        # Foam_balls are pre-placed inside the source bottle (pour_proxy). They
+        # were skipped by the placement helper above, so their cfg position is
+        # still the pre-perturbation spot. Compute the source's translation
+        # delta and apply it so the balls follow the bottle to its new pose.
+        source_delta = None
+        if env.main_objects:
+            source_name = env.main_objects[0].name
+            source_obj = env.omnigibson_env.scene.object_registry("name", source_name)
+            for obj_cfg in env.cfg["objects"]:
+                if obj_cfg["name"] == source_name:
+                    init_pos = env.init_poses[source_obj._relative_prim_path]["pos"]
+                    if hasattr(init_pos, "cpu"):
+                        init_pos = init_pos.cpu().numpy()
+                    source_delta = np.array(obj_cfg["position"]) - np.array(init_pos)
+                    break
+
         og.sim.stop()
         for obj_cfg in env.cfg["objects"]:
             if env.task_type in ["open_drawer", "close_drawer"] and obj_cfg["name"] == "drawer":
                 obj_cfg["position"][-1] -= 0.3
-            env.omnigibson_env.scene.object_registry("name", obj_cfg["name"]).set_position_orientation(obj_cfg["position"])
+            pos = obj_cfg["position"]
+            if source_delta is not None and "foam_ball" in obj_cfg["name"]:
+                pos = (np.array(pos) + source_delta).tolist()
+            env.omnigibson_env.scene.object_registry("name", obj_cfg["name"]).set_position_orientation(pos)
 
         # --------------- Rotation ---------------
         for o in env.main_objects:

@@ -34,12 +34,18 @@ close_drawer:
   - CLOSE_JOINT_SMALL
   - CLOSE_JOINT_LARGE
   - CLOSE_JOINT_FULL
-pour:
+pour_liquid:
   - REACH
   - GRASP
   - LIFT_SLIGHT
-  - MOVE_CLOSE
+  - MOVE_CLOSE_XY
   - POURED
+pour_proxy:
+  - REACH
+  - GRASP
+  - LIFT_SLIGHT
+  - MOVE_CLOSE_XY
+  - POURED_PROXY
 turn_faucet:
   - REACH
   - TOUCH_AND_MOVE_JOINT

@@ -63,8 +63,8 @@ cfg["robots"] = [
         "controller_config": {
             "arm_0": {
                 "name": "EEController",
-                "motor_type": "effort",
-                "mode": "absolute_pose",
+                "motor_type": "position",
+                "mode": "pose_delta_ori", #"absolute_pose",
                 "control_freq": 15,
                 "use_delta_commands": False,
                 "use_impedances": True,
@@ -122,7 +122,7 @@ close = False
 flip = True
 
 from scipy.spatial.transform import Rotation as R
-for t in range(175):
+for t in range(750):
     robot_state = obs['DROID']['proprio'][:7].cpu().numpy()
 
     base_im = obs['external']['external_sensor0']['rgb'].cpu().numpy()[..., :3]
@@ -142,7 +142,12 @@ for t in range(175):
 
     #a[3:6] = flip_pose_pointing_down(a[3:6])
     a = np.concatenate([ee_pos, ee_rot, np.atleast_1d(np.array(-1.0))])
-    a[2] -= 0.87
+    #a[2] -= 0.87
+    a = np.zeros(7)
+    if t < 100:
+        a[0] += 0.075
+        a[1] += 0.05
+    print(a)
 
     obs, rew, terminated, truncated, info = env.step(th.from_numpy(a))
 
