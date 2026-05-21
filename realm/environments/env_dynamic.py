@@ -309,19 +309,17 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             assert len(to_cfgs) == 1, "pour_proxy task requires exactly one target object"
             # Explicitly CPU dynamics: no fluid particles, just rigid foam_balls.
             configure_pour_proxy_macros()
-            # Procedurally inject N foam_ball distractors inside the source.
-            # Base Z = scene spawn-surface Z + source's relative bbox Z. Balls
-            # are stacked vertically with a small per-ball offset because at
-            # high counts (>~6) all-at-same-position spheres generate enormous
-            # PhysX corrective impulses that blast balls out through the
-            # convex-decomposition seams.
+            # Procedurally inject N foam_ball distractors inside the source bottle,
+            # stacked vertically with > 1-diameter spacing so PhysX contact-offset
+            # doesn't report adjacent balls as touching at spawn (overlap → big
+            # corrective impulses each reset).
             mo_pos = mo_cfgs[0]["position"]
             surface_z = float(self.spawn_bbox[4]) if self.spawn_bbox is not None else 0.0
             mo_relative_z = float(mo_cfgs[0]["relative_bbox_position"][2])
             base_foam_z = surface_z + mo_relative_z + 0.03  # +3cm lift so balls don't intersect bottle base
             ball_diameter = 0.01 * 2.0 / 3.0  # ~6.7mm; smaller so they don't get stuck in narrow necks
-            z_spacing = 0.0075  # tight column inside the bottle
-            n_foam_balls = 10
+            z_spacing = ball_diameter * 1.5
+            n_foam_balls = 1 #10
             for i in range(n_foam_balls):
                 fb_cfg = {
                     "type": "PrimitiveObject",
@@ -358,13 +356,17 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         self.target_objects = [self.omnigibson_env.scene.object_registry("name", to["name"]) for to in to_cfgs]
         self.distractors = [self.omnigibson_env.scene.object_registry("name", dist["name"]) for dist in dist_cfgs]
 
-        # For pour_proxy: foam_balls are spawned inside the source bottle.
-        # The default convexHull collision approximation makes the bottle's
-        # interior a solid blob, so the balls would be in penetration and the
-        # bottle would get blown away on first physics step. Switch the source
-        # to convexDecomposition to expose the actual hollow interior.
-        # Also set the foam_ball mass to 0.5 g per ball so debug scripts don't
-        # have to override it.
+        # For pour_proxy: foam_balls are spawned above the source bottle and
+        # need to fall into it. Three setup steps:
+        # 1. Switch the source's collision approximation from the default
+        #    convexHull (solid blob) to convexDecomposition so the bottle's
+        #    interior is hollow and balls can enter through the neck.
+        # 2. Set each foam_ball's mass to 0.5 g so debug scripts don't have to.
+        # 3. Pin the bottle to the world via a FixedJoint, step the sim so the
+        #    balls fall in and settle, then remove the joint so the bottle is
+        #    fully dynamic again. Update the scene's initial state at the end
+        #    so future env.reset() calls restore THIS settled state instead of
+        #    the pre-fall floating-balls state.
         if self.cfg["task_type"] == "pour_proxy":
             og.sim.stop()
             for obj in self.main_objects:
@@ -827,30 +829,73 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             for link in links:
                 link.mass = link.mass * scale
 
+    def is_source_upright(self, tolerance_deg=20.0):
+        """Returns True if the main object's body Z-axis is within @tolerance_deg
+        of the world Z-axis — i.e. the bottle is standing roughly upright."""
+        if not self.main_objects:
+            return True
+        obj = self.main_objects[0]
+        _, quat = obj.get_position_orientation()
+        if hasattr(quat, "cpu"):
+            quat = quat.cpu().numpy()
+        else:
+            quat = np.asarray(quat)
+        body_z_world = R.from_quat(quat).apply(np.array([0.0, 0.0, 1.0]))
+        cos_threshold = float(np.cos(np.deg2rad(tolerance_deg)))
+        return float(body_z_world[2]) >= cos_threshold
+
     def reset(self):
         # Clear leftover liquid from the previous episode before the bottle
         # teleports back. omnigibson_env.reset() does not purge fluid systems,
         # so without this the new bottle pose lands on top of stale particles
         # and wobbles (or tips) during warmup.
-        if self.water_system is not None and self.water_system.n_particles > 0:
-            self.water_system.remove_all_particles()
-        obs, _ = self.omnigibson_env.reset()
-        self.reset_joints()
+        # For pour_proxy: occasionally a foam_ball squeezes through a decomp
+        # seam and ends up under the bottle, tipping it on subsequent resets.
+        # We re-run the reset internally (up to max_settle_attempts times) until
+        # the bottle is upright; these retries do NOT count toward eval repeats
+        # because the caller only sees a single env.reset() call.
+        max_settle_attempts = 10
+        for attempt in range(max_settle_attempts):
+            if self.water_system is not None and self.water_system.n_particles > 0:
+                self.water_system.remove_all_particles()
+            obs, _ = self.omnigibson_env.reset()
+            self.reset_joints()
 
-        self.was_lifted = False
-        for k in self.task_progression.keys():
-            self.task_progression[k] = False
+            self.was_lifted = False
+            for k in self.task_progression.keys():
+                self.task_progression[k] = False
 
-        for p in self.active_perturbations:
-            self.supported_pertrubations[p]()
-        # B-HOBJ deliberately stress-tests low-mass dynamics; preserve its old behavior
-        # by only flooring mass when B-HOBJ is not active.
-        if "B-HOBJ" not in self.active_perturbations:
-            self.enforce_min_main_object_mass()
-        if "V-AUG" in self.active_perturbations:
-            self.v_aug_sigma = np.random.uniform(0.0, 2.5)
-            self.v_aug_alpha = np.random.uniform(0.25, 1.5)
-            obs = apply_blur_and_contrast(obs, self.v_aug_sigma, self.v_aug_alpha)
+            for p in self.active_perturbations:
+                self.supported_pertrubations[p]()
+            # B-HOBJ deliberately stress-tests low-mass dynamics; preserve its old behavior
+            # by only flooring mass when B-HOBJ is not active.
+            if "B-HOBJ" not in self.active_perturbations:
+                self.enforce_min_main_object_mass()
+            if "V-AUG" in self.active_perturbations:
+                self.v_aug_sigma = np.random.uniform(0.0, 2.5)
+                self.v_aug_alpha = np.random.uniform(0.25, 1.5)
+                obs = apply_blur_and_contrast(obs, self.v_aug_sigma, self.v_aug_alpha)
+
+            # Only the pour_proxy task carries the foam-balls-under-bottle risk.
+            if self.task_type != "pour_proxy":
+                return obs, _
+
+            # Let the scene settle for a few physics steps so the upright check
+            # reflects the actual post-reset equilibrium rather than the
+            # transient initial state.
+            for _ in range(20):
+                og.sim.step()
+            if self.is_source_upright():
+                return obs, _
+            print(
+                f"[pour_proxy reset] Bottle not standing upright after attempt "
+                f"{attempt + 1}/{max_settle_attempts} — re-resetting scene "
+                f"(this re-reset does NOT count toward eval repeats)."
+            )
+        print(
+            f"[pour_proxy reset] FAILED to leave bottle upright after "
+            f"{max_settle_attempts} attempts; returning last observation anyway."
+        )
         return obs, _
 
     def _robot2world(self, action):

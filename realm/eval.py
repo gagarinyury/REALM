@@ -35,7 +35,7 @@ SUPPORTED_PERTURBATIONS = [
     'Default', #0
     'V-AUG', # 1
     'V-VIEW',  # 2
-    'V-SC', # 1
+    'V-SC', # 3
     'V-LIGHT', # 4
     'S-PROP', # 5
     'S-LANG', # 6

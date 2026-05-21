@@ -32,7 +32,7 @@ main_objects:
       category: "cola_bottle" #"reagent_bottle" #"soda_water_bottle" #"mug"
       model: "oyqdtz" #"trtrsl" #"upfssc" #"ehnmxj"
       bounding_box: [0.07, 0.07, 0.22 ]
-      relative_bbox_position: [0.425, 0.4, 0.15]
+      relative_bbox_position: [0.425, 0.4, 0.125]
       #relative_bbox_position: [0.25, 0.4, 0.125]
 #    - type: "DatasetObject"
 #      name: "water_glass_main"
