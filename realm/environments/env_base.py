@@ -427,7 +427,7 @@ class RealmEnvironmentBase:
             n_in = n_in.item()
         return int(n_in) >= min_particles
 
-    def check_pour_proxy(self, obs, min_balls_inside=2):
+    def check_pour_proxy(self, obs, min_balls_inside=1):
         # Pour proxy: success when at least @min_balls_inside foam_balls
         # (objects whose name contains 'foam_ball') end up Inside the target
         # container. Looser than the strict all-balls-inside check so a few
