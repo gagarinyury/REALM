@@ -449,6 +449,14 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                 else:
                     print(f"[pour_proxy init] WARNING: could not keep bottle upright after {max_attempts} attempts")
 
+                # Restore the robot to its reset pose before snapshotting so
+                # the captured initial state doesn't include drifted joint
+                # positions / stale controller targets (otherwise the gripper
+                # can end up "stuck closed" and warmup's open command fails).
+                self.robot.set_joint_positions(torch.tensor(self.reset_qpos, dtype=torch.float32))
+                self.robot.keep_still()
+                og.sim.step()  # one step so the joint positions/controller targets take effect
+
                 # Snapshot the settled configuration as the new reset target.
                 self.omnigibson_env.scene.update_initial_state()
                 print("[pour_proxy init] initial_state recaptured with balls inside settled bottle")
