@@ -19,6 +19,7 @@ import numpy as np
 
 import omnigibson as og
 import omnigibson.lazy as lazy
+from scipy.spatial.transform import Rotation as R
 
 from realm.eval import set_sim_config, SUPPORTED_TASKS
 from realm.environments.env_dynamic import RealmEnvironmentDynamic
@@ -67,9 +68,10 @@ def run_pour_debug(perturbation: str = "Default", max_steps: int = 1500, log_dir
     obs, rew, terminated, truncated, info = env.warmup(obs)
     print(f"DEBUG: Warmup + water fill done in {time.perf_counter() - start:.2f}s")
 
-    # Shrink the bottle to 30 g post-warmup. Spawn already happened against the
-    # original mass so spawn impulses didn't tip it.
-    target_mass_kg = 0.03
+    # Set bottle mass to 100 g and drop CoM near the bottle's bottom (matches
+    # what env_dynamic does for pour_proxy, but applied here too in case this
+    # debug script is run with a non-pour_proxy task).
+    target_mass_kg = 0.1
     for obj in env.main_objects:
         if "cola_bottle" in obj.name or obj.category == "cola_bottle":
             total_mass = sum(link.mass for link in obj._links.values())
@@ -78,6 +80,38 @@ def run_pour_debug(perturbation: str = "Default", max_steps: int = 1500, log_dir
                 link.mass = link.mass * scale
             bottle_mass = sum(link.mass for link in obj._links.values())
             print(f"DEBUG: Set {obj.name} mass {total_mass:.4f} -> {bottle_mass:.4f} kg")
+
+            # Push CoM toward the bottle's bottom (85% of half-height below
+            # the origin, expressed in body-local frame via the bottle's
+            # current world orientation so the math works regardless of how
+            # the link's xform is authored).
+            try:
+                _, bottle_quat_w = obj.get_position_orientation()
+                if hasattr(bottle_quat_w, "cpu"):
+                    bottle_quat_w = bottle_quat_w.cpu().numpy()
+                bottle_quat_w = np.asarray(bottle_quat_w, dtype=float)
+                aabb_min, aabb_max = obj.aabb
+                world_z_extent = float(
+                    (aabb_max[2] - aabb_min[2]).item()
+                    if hasattr(aabb_max[2], "item")
+                    else aabb_max[2] - aabb_min[2]
+                )
+                com_drop_world = np.array([0.0, 0.0, -0.85 * (world_z_extent / 2.0)])
+                com_offset_body = R.from_quat(bottle_quat_w).inv().apply(com_drop_world)
+                link_prim = obj.root_link.prim
+                mass_api = lazy.pxr.UsdPhysics.MassAPI.Apply(link_prim)
+                if not mass_api.GetCenterOfMassAttr():
+                    mass_api.CreateCenterOfMassAttr()
+                mass_api.GetCenterOfMassAttr().Set(
+                    lazy.pxr.Gf.Vec3f(
+                        float(com_offset_body[0]),
+                        float(com_offset_body[1]),
+                        float(com_offset_body[2]),
+                    )
+                )
+                print(f"DEBUG: set {obj.name} CoM to body-local {tuple(com_offset_body.round(4).tolist())} (= world (0,0,{com_drop_world[2]:.4f}))")
+            except Exception as e:
+                print(f"DEBUG: could not set CoM on {obj.name}: {e}")
 
     # NOTE: foam_ball mass is set inside env_dynamic for pour_proxy (0.5 g
     # per ball), so no per-ball mass override is needed here.
@@ -92,25 +126,41 @@ def run_pour_debug(perturbation: str = "Default", max_steps: int = 1500, log_dir
         foam_balls = [d for d in env.distractors if d is not None and "foam_ball" in d.name]
         if foam_balls:
             bottle = env.main_objects[0]
-            ball_diameter = 0.01 * 2.0 / 3.0
+            ball_diameter = 0.01  # must match env_dynamic
             z_spacing = ball_diameter * 1.5
             xy_jitter = 0.002   # tightened to ±2 mm so balls stay near the bottle's center axis, away from wall-hull seams
             z_lift = 0.03
             max_attempts = 8
 
+            # Capture the pristine post-warmup pose ONCE, before any retry can
+            # tip the bottle. All subsequent attempts restore to THIS pose
+            # (both position AND orientation), and ball positions are computed
+            # from pristine_pos so a tipped bottle on a previous attempt
+            # doesn't bias the next attempt's reference frame.
+            pristine_pos, pristine_quat = bottle.get_position_orientation()
+            if hasattr(pristine_pos, "cpu"):
+                pristine_pos = pristine_pos.cpu().numpy()
+            pristine_pos = np.asarray(pristine_pos, dtype=float)
+            if hasattr(pristine_quat, "cpu"):
+                pristine_quat = pristine_quat.cpu().numpy()
+            pristine_quat = np.asarray(pristine_quat, dtype=float)
+
             for attempt in range(max_attempts):
-                bottle_pos = bottle.get_position_orientation()[0]
-                if hasattr(bottle_pos, "cpu"):
-                    bottle_pos = bottle_pos.cpu().numpy()
-                bottle_pos = np.asarray(bottle_pos, dtype=float)
+                # Always restore bottle to pristine pose (pos AND quat) at
+                # the start of each attempt.
+                bottle.set_position_orientation(
+                    position=pristine_pos.tolist(),
+                    orientation=pristine_quat.tolist(),
+                )
+                bottle.keep_still()
 
                 for i, ball in enumerate(foam_balls):
                     dx = np.random.uniform(-xy_jitter, xy_jitter)
                     dy = np.random.uniform(-xy_jitter, xy_jitter)
                     new_pos = [
-                        float(bottle_pos[0]) + dx,
-                        float(bottle_pos[1]) + dy,
-                        float(bottle_pos[2]) + z_lift + i * z_spacing,
+                        float(pristine_pos[0]) + dx,
+                        float(pristine_pos[1]) + dy,
+                        float(pristine_pos[2]) + z_lift + i * z_spacing,
                     ]
                     ball.set_position_orientation(position=new_pos)
                     ball.keep_still()
@@ -119,14 +169,18 @@ def run_pour_debug(perturbation: str = "Default", max_steps: int = 1500, log_dir
 
                 if env.is_source_upright():
                     print(f"DEBUG: balls placed successfully on attempt {attempt + 1}/{max_attempts}")
+                    # Snap bottle exactly to pristine before snapshot so the
+                    # captured initial_state has the canonical upright pose,
+                    # not a borderline-drifted one.
+                    bottle.set_position_orientation(
+                        position=pristine_pos.tolist(),
+                        orientation=pristine_quat.tolist(),
+                    )
+                    bottle.keep_still()
                     env.omnigibson_env.scene.update_initial_state()
                     print("DEBUG: snapshot captured with balls inside")
                     break
                 print(f"DEBUG: bottle tipped on attempt {attempt + 1}/{max_attempts} — re-rolling jitter")
-                # Restore the bottle to its original settled pose before retrying
-                # so the next attempt starts from a known-good bottle state.
-                bottle.set_position_orientation(position=bottle_pos)
-                bottle.keep_still()
             else:
                 print(f"DEBUG: FAILED to keep bottle upright after {max_attempts} attempts; snapshot NOT updated")
 

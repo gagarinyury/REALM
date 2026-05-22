@@ -317,9 +317,9 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             surface_z = float(self.spawn_bbox[4]) if self.spawn_bbox is not None else 0.0
             mo_relative_z = float(mo_cfgs[0]["relative_bbox_position"][2])
             base_foam_z = surface_z + mo_relative_z + 0.03  # +3cm lift so balls don't intersect bottle base
-            ball_diameter = 0.01 * 2.0 / 3.0  # ~6.7mm; smaller so they don't get stuck in narrow necks
+            ball_diameter = 0.01  # 10mm; larger so they're less prone to bugging through convex-decomp seams
             z_spacing = ball_diameter * 1.5
-            n_foam_balls = 10
+            n_foam_balls = 5
             for i in range(n_foam_balls):
                 fb_cfg = {
                     "type": "PrimitiveObject",
@@ -430,6 +430,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                     pristine_quat = pristine_quat.cpu().numpy()
                 pristine_quat = np.asarray(pristine_quat, dtype=float)
                 self._pour_proxy_pristine_quat = pristine_quat.copy()
+                self._pour_proxy_pristine_pos = pristine_pos.copy()
 
                 for attempt in range(max_attempts):
                     # Always restore the bottle to its pristine pose at the
@@ -459,6 +460,46 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                     print(f"[pour_proxy init] attempt {attempt + 1}/{max_attempts} tipped the bottle; re-rolling jitter")
                 else:
                     print(f"[pour_proxy init] WARNING: could not keep bottle upright after {max_attempts} attempts")
+
+                # Push the bottle's center of mass near its bottom so it's
+                # bottom-heavy and resists tipping. We compute the offset in
+                # world frame ("down by 40% of half-height") and convert it
+                # into the link's local frame via pristine_quat so the math
+                # generalizes across bottles whose link Xforms have different
+                # authored rotations.
+                try:
+                    aabb_min, aabb_max = bottle.aabb
+                    world_z_extent = float(
+                        (aabb_max[2] - aabb_min[2]).item()
+                        if hasattr(aabb_max[2], "item")
+                        else aabb_max[2] - aabb_min[2]
+                    )
+                    com_drop_world = np.array([0.0, 0.0, -0.85 * (world_z_extent / 2.0)])
+                    com_offset_body = R.from_quat(pristine_quat).inv().apply(com_drop_world)
+                    link_prim = bottle.root_link.prim
+                    mass_api = lazy.pxr.UsdPhysics.MassAPI.Apply(link_prim)
+                    if not mass_api.GetCenterOfMassAttr():
+                        mass_api.CreateCenterOfMassAttr()
+                    mass_api.GetCenterOfMassAttr().Set(
+                        lazy.pxr.Gf.Vec3f(
+                            float(com_offset_body[0]),
+                            float(com_offset_body[1]),
+                            float(com_offset_body[2]),
+                        )
+                    )
+                    print(f"[pour_proxy init] set bottle CoM to body-local {tuple(com_offset_body.round(4).tolist())} (= world (0,0,{com_drop_world[2]:.4f}))")
+                except Exception as e:
+                    print(f"[pour_proxy init] could not set bottle CoM: {e}")
+
+                # Snap the bottle back to its exact pristine pose before
+                # snapshotting — the 60-step settle may have drifted it
+                # slightly within tolerance, and we want the reset target
+                # to be the canonical upright pose, not a borderline one.
+                bottle.set_position_orientation(
+                    position=pristine_pos.tolist(),
+                    orientation=pristine_quat.tolist(),
+                )
+                bottle.keep_still()
 
                 # Restore the robot to its reset pose before snapshotting so
                 # the captured initial state doesn't include drifted joint
@@ -983,6 +1024,21 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             # Only the pour_proxy task carries the foam-balls-under-bottle risk.
             if self.task_type != "pour_proxy":
                 return obs, _
+
+            # Defensive restore: explicitly snap the bottle back to its
+            # pristine pose (captured at construction). omnigibson_env.reset()
+            # should already do this via load_state, but if a previous reset
+            # attempt tipped the bottle, PhysX's residual state can leak
+            # through. This makes the upright check below deterministic.
+            pristine_pos = getattr(self, "_pour_proxy_pristine_pos", None)
+            pristine_quat = getattr(self, "_pour_proxy_pristine_quat", None)
+            if pristine_pos is not None and pristine_quat is not None and self.main_objects:
+                bottle = self.main_objects[0]
+                bottle.set_position_orientation(
+                    position=pristine_pos.tolist(),
+                    orientation=pristine_quat.tolist(),
+                )
+                bottle.keep_still()
 
             # Let the scene settle for a few physics steps so the upright check
             # reflects the actual post-reset equilibrium rather than the
