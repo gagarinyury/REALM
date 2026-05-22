@@ -28,11 +28,12 @@ reset_joint_pos: [ 0.0055956,  -0.46229482, -0.10837201, -2.22445,   -0.02223617
 
 main_objects:
     - type: "USDObject"
-      usd_path: "/app/custom_assets/bottle6789/bottle7_obj/bottle_v3.usd"
+      usd_path: "/app/custom_assets/bottle6789/bottle8_obj/bottle.usd"
       name: "cola_bottle"
       scale: [0.16, 0.16, 0.193]
       bounding_box: [0.07, 0.07, 0.22 ]
       relative_bbox_position: [0.425, 0.4, 0.125]
+      fix_base: True
 
 #      category: "cola_bottle" #"reagent_bottle" #"soda_water_bottle" #"mug"
 #      model: "oyqdtz" #"trtrsl" #"upfssc" #"ehnmxj"
