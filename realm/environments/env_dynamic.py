@@ -962,11 +962,10 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                 link.mass = link.mass * scale
 
     def is_source_upright(self, tolerance_deg=20.0):
-        """Returns True if the main object is within @tolerance_deg of its
-        pristine upright orientation. If we captured a pristine quat during
-        pour_proxy setup, we compare against that (correct for bottles whose
-        link Xform has authored rotations). Otherwise we fall back to checking
-        that the body's Z-axis points up in world frame."""
+        """Returns True if the main object's "up" axis (whichever body-frame
+        axis pointed to world-Z at rest) still points within @tolerance_deg of
+        world-Z. This checks TILT only — rotations around the world vertical
+        axis (e.g. VB-POSE's Z-rotation noise) are ignored, as they should be."""
         if not self.main_objects:
             return True
         obj = self.main_objects[0]
@@ -979,12 +978,14 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
         pristine = getattr(self, "_pour_proxy_pristine_quat", None)
         if pristine is not None:
-            # Angle between current and pristine orientations. The relative
-            # rotation R_rel = R_cur * R_pristine^-1 has axis-angle magnitude
-            # equal to that angle.
-            r_rel = R.from_quat(quat) * R.from_quat(pristine).inv()
-            angle_rad = float(np.linalg.norm(r_rel.as_rotvec()))
-            return angle_rad <= np.deg2rad(tolerance_deg)
+            # The body-frame axis that mapped to world-Z when upright:
+            #   body_up = R_pristine^-1 @ world_up
+            # The same body axis in the CURRENT world frame:
+            #   body_up_in_world = R_current @ body_up
+            # Tilt = angle between body_up_in_world and world-Z.
+            body_up_body_frame = R.from_quat(pristine).inv().apply(np.array([0.0, 0.0, 1.0]))
+            body_up_world = R.from_quat(quat).apply(body_up_body_frame)
+            return float(body_up_world[2]) >= cos_threshold
 
         body_z_world = R.from_quat(quat).apply(np.array([0.0, 0.0, 1.0]))
         return float(body_z_world[2]) >= cos_threshold
@@ -1025,24 +1026,15 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             if self.task_type != "pour_proxy":
                 return obs, _
 
-            # Defensive restore: explicitly snap the bottle back to its
-            # pristine pose (captured at construction). omnigibson_env.reset()
-            # should already do this via load_state, but if a previous reset
-            # attempt tipped the bottle, PhysX's residual state can leak
-            # through. This makes the upright check below deterministic.
-            pristine_pos = getattr(self, "_pour_proxy_pristine_pos", None)
-            pristine_quat = getattr(self, "_pour_proxy_pristine_quat", None)
-            if pristine_pos is not None and pristine_quat is not None and self.main_objects:
-                bottle = self.main_objects[0]
-                bottle.set_position_orientation(
-                    position=pristine_pos.tolist(),
-                    orientation=pristine_quat.tolist(),
-                )
-                bottle.keep_still()
-
             # Let the scene settle for a few physics steps so the upright check
             # reflects the actual post-reset equilibrium rather than the
-            # transient initial state.
+            # transient initial state. We do NOT defensively restore the
+            # bottle to its pristine pose here — that would undo any
+            # placement-altering perturbation (e.g. VB-POSE), making the
+            # eval effectively ignore the perturbation. omnigibson_env.reset()
+            # restores from the captured initial_state (which has the bottle
+            # at pristine pose), perturbations may move it, and we just check
+            # uprightness on whatever the perturbation produced.
             for _ in range(20):
                 og.sim.step()
             if self.is_source_upright():
