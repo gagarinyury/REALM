@@ -385,6 +385,13 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                     n_links = max(len(obj._links), 1)
                     for link in obj._links.values():
                         link.mass = foam_ball_mass_kg / n_links
+            # Source bottle: explicit 100 g so dynamics are predictable across
+            # custom USDs that might author very different default masses.
+            bottle_mass_kg = 0.1
+            for obj in self.main_objects:
+                n_links = max(len(obj._links), 1)
+                for link in obj._links.values():
+                    link.mass = bottle_mass_kg / n_links
             og.sim.play()
 
             # Stash every foam_ball far away from the bottle BEFORE settling.
@@ -411,7 +418,10 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                 # Capture the pristine post-settle bottle pose ONCE, before any
                 # attempt can tip it. Every retry restores to this pose (both
                 # position and orientation) so a previous tip doesn't bias the
-                # next attempt's starting condition.
+                # next attempt's starting condition. Also save the orientation
+                # on self so is_source_upright() can compare against it rather
+                # than assuming the body's Z-axis points up at rest (some
+                # custom USDs have authored xforms that rotate body axes).
                 pristine_pos, pristine_quat = bottle.get_position_orientation()
                 if hasattr(pristine_pos, "cpu"):
                     pristine_pos = pristine_pos.cpu().numpy()
@@ -419,6 +429,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                 if hasattr(pristine_quat, "cpu"):
                     pristine_quat = pristine_quat.cpu().numpy()
                 pristine_quat = np.asarray(pristine_quat, dtype=float)
+                self._pour_proxy_pristine_quat = pristine_quat.copy()
 
                 for attempt in range(max_attempts):
                     # Always restore the bottle to its pristine pose at the
@@ -910,8 +921,11 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                 link.mass = link.mass * scale
 
     def is_source_upright(self, tolerance_deg=20.0):
-        """Returns True if the main object's body Z-axis is within @tolerance_deg
-        of the world Z-axis — i.e. the bottle is standing roughly upright."""
+        """Returns True if the main object is within @tolerance_deg of its
+        pristine upright orientation. If we captured a pristine quat during
+        pour_proxy setup, we compare against that (correct for bottles whose
+        link Xform has authored rotations). Otherwise we fall back to checking
+        that the body's Z-axis points up in world frame."""
         if not self.main_objects:
             return True
         obj = self.main_objects[0]
@@ -920,8 +934,18 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             quat = quat.cpu().numpy()
         else:
             quat = np.asarray(quat)
-        body_z_world = R.from_quat(quat).apply(np.array([0.0, 0.0, 1.0]))
         cos_threshold = float(np.cos(np.deg2rad(tolerance_deg)))
+
+        pristine = getattr(self, "_pour_proxy_pristine_quat", None)
+        if pristine is not None:
+            # Angle between current and pristine orientations. The relative
+            # rotation R_rel = R_cur * R_pristine^-1 has axis-angle magnitude
+            # equal to that angle.
+            r_rel = R.from_quat(quat) * R.from_quat(pristine).inv()
+            angle_rad = float(np.linalg.norm(r_rel.as_rotvec()))
+            return angle_rad <= np.deg2rad(tolerance_deg)
+
+        body_z_world = R.from_quat(quat).apply(np.array([0.0, 0.0, 1.0]))
         return float(body_z_world[2]) >= cos_threshold
 
     def reset(self):
