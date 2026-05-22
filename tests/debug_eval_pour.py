@@ -18,6 +18,7 @@ import os
 import numpy as np
 
 import omnigibson as og
+import omnigibson.lazy as lazy
 
 from realm.eval import set_sim_config, SUPPORTED_TASKS
 from realm.environments.env_dynamic import RealmEnvironmentDynamic
@@ -80,6 +81,54 @@ def run_pour_debug(perturbation: str = "Default", max_steps: int = 1500, log_dir
 
     # NOTE: foam_ball mass is set inside env_dynamic for pour_proxy (0.5 g
     # per ball), so no per-ball mass override is needed here.
+
+    # TEMP DEBUG: bottle has now settled via warmup. Place each foam_ball
+    # inside the bottle at its (now-settled) world position, with a small XY
+    # jitter and Z spacing. Validate that the bottle stays upright after the
+    # balls settle; if a ball bugs through a decomp seam and tips the bottle,
+    # re-roll the jitter and retry — bad random placements should NEVER be
+    # baked into the reset snapshot.
+    if env.main_objects:
+        foam_balls = [d for d in env.distractors if d is not None and "foam_ball" in d.name]
+        if foam_balls:
+            bottle = env.main_objects[0]
+            ball_diameter = 0.01 * 2.0 / 3.0
+            z_spacing = ball_diameter * 1.5
+            xy_jitter = 0.002   # tightened to ±2 mm so balls stay near the bottle's center axis, away from wall-hull seams
+            z_lift = 0.03
+            max_attempts = 8
+
+            for attempt in range(max_attempts):
+                bottle_pos = bottle.get_position_orientation()[0]
+                if hasattr(bottle_pos, "cpu"):
+                    bottle_pos = bottle_pos.cpu().numpy()
+                bottle_pos = np.asarray(bottle_pos, dtype=float)
+
+                for i, ball in enumerate(foam_balls):
+                    dx = np.random.uniform(-xy_jitter, xy_jitter)
+                    dy = np.random.uniform(-xy_jitter, xy_jitter)
+                    new_pos = [
+                        float(bottle_pos[0]) + dx,
+                        float(bottle_pos[1]) + dy,
+                        float(bottle_pos[2]) + z_lift + i * z_spacing,
+                    ]
+                    ball.set_position_orientation(position=new_pos)
+                    ball.keep_still()
+                for _ in range(60):
+                    og.sim.step()
+
+                if env.is_source_upright():
+                    print(f"DEBUG: balls placed successfully on attempt {attempt + 1}/{max_attempts}")
+                    env.omnigibson_env.scene.update_initial_state()
+                    print("DEBUG: snapshot captured with balls inside")
+                    break
+                print(f"DEBUG: bottle tipped on attempt {attempt + 1}/{max_attempts} — re-rolling jitter")
+                # Restore the bottle to its original settled pose before retrying
+                # so the next attempt starts from a known-good bottle state.
+                bottle.set_position_orientation(position=bottle_pos)
+                bottle.keep_still()
+            else:
+                print(f"DEBUG: FAILED to keep bottle upright after {max_attempts} attempts; snapshot NOT updated")
 
     # ---- Scripted trajectory: reach, grasp, lift, rotate the bottle. The point
     # of this script is to exercise the pipeline, not to solve the task.

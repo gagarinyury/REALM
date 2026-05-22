@@ -319,7 +319,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             base_foam_z = surface_z + mo_relative_z + 0.03  # +3cm lift so balls don't intersect bottle base
             ball_diameter = 0.01 * 2.0 / 3.0  # ~6.7mm; smaller so they don't get stuck in narrow necks
             z_spacing = ball_diameter * 1.5
-            n_foam_balls = 1 #10
+            n_foam_balls = 10
             for i in range(n_foam_balls):
                 fb_cfg = {
                     "type": "PrimitiveObject",
@@ -356,17 +356,23 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         self.target_objects = [self.omnigibson_env.scene.object_registry("name", to["name"]) for to in to_cfgs]
         self.distractors = [self.omnigibson_env.scene.object_registry("name", dist["name"]) for dist in dist_cfgs]
 
-        # For pour_proxy: foam_balls are spawned above the source bottle and
-        # need to fall into it. Three setup steps:
+        # For pour_proxy: foam_balls were injected into cfg["objects"] above at
+        # pre-settle positions, but PhysX's spawn-frame penetration resolution
+        # tends to eject any ball placed in slight overlap with the bottle's
+        # interior hulls. Steps:
         # 1. Switch the source's collision approximation from the default
         #    convexHull (solid blob) to convexDecomposition so the bottle's
-        #    interior is hollow and balls can enter through the neck.
-        # 2. Set each foam_ball's mass to 0.5 g so debug scripts don't have to.
-        # 3. Pin the bottle to the world via a FixedJoint, step the sim so the
-        #    balls fall in and settle, then remove the joint so the bottle is
-        #    fully dynamic again. Update the scene's initial state at the end
-        #    so future env.reset() calls restore THIS settled state instead of
-        #    the pre-fall floating-balls state.
+        #    interior is hollow.
+        # 2. Set each foam_ball's mass to 0.5 g.
+        # 3. Settle the bottle for a few sim steps so its pose is final.
+        # 4. Re-position each foam_ball relative to the settled bottle pose,
+        #    with small XY jitter so they don't all sit on the same axis.
+        # 5. Step the sim again to let the balls settle inside. If the bottle
+        #    tipped (a ball squeezed through a decomp seam), re-roll the jitter
+        #    and try again up to a few times.
+        # 6. update_initial_state() captures this configuration so every
+        #    subsequent env.reset() returns to balls-inside-bottle instead of
+        #    the pre-settle penetrating positions.
         if self.cfg["task_type"] == "pour_proxy":
             og.sim.stop()
             for obj in self.main_objects:
@@ -380,6 +386,72 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                     for link in obj._links.values():
                         link.mass = foam_ball_mass_kg / n_links
             og.sim.play()
+
+            # Stash every foam_ball far away from the bottle BEFORE settling.
+            # The cfg-injected balls are at in-bottle positions that overlap
+            # with the bottle's hulls; if we settle with them in place, PhysX
+            # ejects them and tips the bottle on attempt 0. With the balls
+            # stashed, the bottle settles alone and the pristine pose we
+            # capture is genuinely upright.
+            foam_balls = [d for d in self.distractors if d is not None and "foam_ball" in d.name]
+            for i, ball in enumerate(foam_balls):
+                ball.set_position_orientation(position=[100.0, 100.0, 100.0 + i * 0.1])
+                ball.keep_still()
+            for _ in range(30):
+                og.sim.step()
+
+            if foam_balls and self.main_objects:
+                bottle = self.main_objects[0]
+                ball_diameter = 0.01 * 2.0 / 3.0
+                z_spacing = ball_diameter * 1.5
+                xy_jitter = 0.002
+                z_lift = 0.03
+                max_attempts = 8
+
+                # Capture the pristine post-settle bottle pose ONCE, before any
+                # attempt can tip it. Every retry restores to this pose (both
+                # position and orientation) so a previous tip doesn't bias the
+                # next attempt's starting condition.
+                pristine_pos, pristine_quat = bottle.get_position_orientation()
+                if hasattr(pristine_pos, "cpu"):
+                    pristine_pos = pristine_pos.cpu().numpy()
+                pristine_pos = np.asarray(pristine_pos, dtype=float)
+                if hasattr(pristine_quat, "cpu"):
+                    pristine_quat = pristine_quat.cpu().numpy()
+                pristine_quat = np.asarray(pristine_quat, dtype=float)
+
+                for attempt in range(max_attempts):
+                    # Always restore the bottle to its pristine pose at the
+                    # start of each attempt so a previous tip doesn't carry over.
+                    bottle.set_position_orientation(
+                        position=pristine_pos.tolist(),
+                        orientation=pristine_quat.tolist(),
+                    )
+                    bottle.keep_still()
+
+                    for i, ball in enumerate(foam_balls):
+                        dx = np.random.uniform(-xy_jitter, xy_jitter)
+                        dy = np.random.uniform(-xy_jitter, xy_jitter)
+                        new_pos = [
+                            float(pristine_pos[0]) + dx,
+                            float(pristine_pos[1]) + dy,
+                            float(pristine_pos[2]) + z_lift + i * z_spacing,
+                        ]
+                        ball.set_position_orientation(position=new_pos)
+                        ball.keep_still()
+                    for _ in range(60):
+                        og.sim.step()
+
+                    if self.is_source_upright():
+                        print(f"[pour_proxy init] placed {len(foam_balls)} foam_ball(s) on attempt {attempt + 1}/{max_attempts}")
+                        break
+                    print(f"[pour_proxy init] attempt {attempt + 1}/{max_attempts} tipped the bottle; re-rolling jitter")
+                else:
+                    print(f"[pour_proxy init] WARNING: could not keep bottle upright after {max_attempts} attempts")
+
+                # Snapshot the settled configuration as the new reset target.
+                self.omnigibson_env.scene.update_initial_state()
+                print("[pour_proxy init] initial_state recaptured with balls inside settled bottle")
 
         self.init_poses = {obj._relative_prim_path: { # using relative prim path as unique id
             "pos": obj.get_position_orientation()[0],
