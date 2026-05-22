@@ -27,23 +27,20 @@ camera_extrinsics:
 reset_joint_pos: [ 0.0055956,  -0.46229482, -0.10837201, -2.22445,   -0.02223617,  1.6368663, -0.28468588]
 
 main_objects:
-    - type: "DatasetObject"
+    - type: "USDObject"
+      usd_path: "/app/custom_assets/bottle6789/bottle7_obj/bottle_v3.usd"
       name: "cola_bottle"
-      category: "cola_bottle" #"reagent_bottle" #"soda_water_bottle" #"mug"
-      model: "oyqdtz" #"trtrsl" #"upfssc" #"ehnmxj"
+      scale: [0.16, 0.16, 0.193]
       bounding_box: [0.07, 0.07, 0.22 ]
       relative_bbox_position: [0.425, 0.4, 0.125]
-      #relative_bbox_position: [0.25, 0.4, 0.125]
-#    - type: "DatasetObject"
-#      name: "water_glass_main"
-#      category: "water_glass"
-#      model: "lvqgvn"
-#      bounding_box: [0.06, 0.06, 0.15]
-#      relative_bbox_position: [0.25, 0.4, 0.125]
 
+#      category: "cola_bottle" #"reagent_bottle" #"soda_water_bottle" #"mug"
+#      model: "oyqdtz" #"trtrsl" #"upfssc" #"ehnmxj"
 # water_bottle-ackxiy
 # water_bottle-lzdzkk
 # beer_bottle-nigfha
+#      category: "water_glass"
+#      model: "lvqgvn"
 
 target_objects:
     - type: "DatasetObject"
@@ -51,70 +48,28 @@ target_objects:
       category: "bowl"
       model: "jpvcjv"
       bounding_box: [ 0.20, 0.20, 0.07 ]
-      #relative_bbox_position: [0.7, 0.55, 0 ]
       relative_bbox_position: [0.25, 0.43, 0 ]
 
 distractors:
-#    - type: "PrimitiveObject"
-#      name: "foam_ball"
-#      primitive_type: "Sphere"
-#      rgba: [ 0.85, 0.1, 0.1, 1.0 ]
-#      bounding_box: [ 0.01, 0.01, 0.01 ]
-#      scale: [ 0.01, 0.01, 0.01 ]
-#      relative_bbox_position: [0.425, 0.4, 0.25]
-#    - type: "PrimitiveObject"
-#      name: "foam_ball_1"
-#      primitive_type: "Sphere"
-#      rgba: [ 0.85, 0.1, 0.1, 1.0 ]
-#      bounding_box: [ 0.01, 0.01, 0.01 ]
-#      scale: [ 0.01, 0.01, 0.01 ]
-#      relative_bbox_position: [ 0.425, 0.4, 0.25 ]
-#    - type: "PrimitiveObject"
-#      name: "foam_ball_3"
-#      primitive_type: "Sphere"
-#      rgba: [ 0.85, 0.1, 0.1, 1.0 ]
-#      bounding_box: [ 0.01, 0.01, 0.01 ]
-#      scale: [ 0.01, 0.01, 0.01 ]
-#      relative_bbox_position: [0.425, 0.4, 0.25]
-#    - type: "PrimitiveObject"
-#      name: "foam_ball_4"
-#      primitive_type: "Sphere"
-#      rgba: [ 0.85, 0.1, 0.1, 1.0 ]
-#      bounding_box: [ 0.01, 0.01, 0.01 ]
-#      scale: [ 0.01, 0.01, 0.01 ]
-#      relative_bbox_position: [ 0.425, 0.4, 0.25 ]
-#    - type: "PrimitiveObject"
-#      name: "foam_ball_5"
-#      primitive_type: "Sphere"
-#      rgba: [ 0.85, 0.1, 0.1, 1.0 ]
-#      bounding_box: [ 0.01, 0.01, 0.01 ]
-#      scale: [ 0.01, 0.01, 0.01 ]
-#      relative_bbox_position: [0.425, 0.4, 0.25]
-#    - type: "PrimitiveObject"
-#      name: "foam_ball_6"
-#      primitive_type: "Sphere"
-#      rgba: [ 0.85, 0.1, 0.1, 1.0 ]
-#      bounding_box: [ 0.01, 0.01, 0.01 ]
-#      scale: [ 0.01, 0.01, 0.01 ]
-#      relative_bbox_position: [ 0.425, 0.4, 0.25 ]
     - type: "DatasetObject"
-      name: "corkscrew"
-      category: "corkscrew"
-      model: "gqocna"
-      bounding_box: [ 0.02, 0.09, 0.11 ]
-      relative_bbox_position: [0.25, 0.175, 0.055 ]
+      name: "sponge"
+      category: "sponge"
+      model: "qewotb"
+      bounding_box: [ 0.10, 0.07, 0.02 ]
+      relative_bbox_position: [0.25, 0.62, 0.055 ]
     - type: "DatasetObject"
-      name: "wineglass"
-      category: "wineglass"
-      model: "hxccge"
-      bounding_box: [ 0.08, 0.08, 0.16  ]
-      relative_bbox_position: [ 0.15, 0.175, 0.04 ]
+      name: "pen"
+      category: "pen"
+      model: "gzrbrx"
+      orientation: [ -0.7071068, 0, 0, 0.7071068 ]
+      bounding_box: [ 0.16, 0.01, 0.01 ]
+      relative_bbox_position: [ 0.15, 0.2, 0.04 ]
     - type: "DatasetObject"
-      name: "bottle_of_wine"
-      category: "bottle_of_wine"
-      model: "tisclo"
-      bounding_box: [0.075, 0.075, 0.24 ]
-      relative_bbox_position: [0.425, 0.175, 0.125]
+      name: "toy_box"
+      category: "toy_box"
+      model: "kvithq"
+      bounding_box: [ 0.12, 0.13, 0.06 ]
+      relative_bbox_position: [0.425, 0.175, 0.175]
 
 
 cached_semantic_perturbations:
