@@ -330,7 +330,9 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             base_foam_z = surface_z + mo_relative_z + 0.03  # +3cm lift so balls don't intersect bottle base
             ball_diameter = 0.01  # 10mm; larger so they're less prone to bugging through convex-decomp seams
             z_spacing = ball_diameter * 1.5
-            n_foam_balls = 5
+            # default_4 config exists to test the single-ball pour variant.
+            _cfg_name = self.task_cfg_path.split("/")[-1].replace(".yaml", "").replace(".cfg", "")
+            n_foam_balls = 1 if _cfg_name == "default_4" else 5
             for i in range(n_foam_balls):
                 fb_cfg = {
                     "type": "PrimitiveObject",
