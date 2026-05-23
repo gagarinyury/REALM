@@ -31,7 +31,7 @@ main_objects:
       usd_path: "/app/custom_assets/bottle6789/bottle8_obj/bottle_v2.usd"
       name: "cola_bottle"
       scale: [0.125, 0.125, 0.15]
-      bounding_box: [0.07, 0.07, 0.22 ]
+      bounding_box: [0.08, 0.08, 0.22 ]
       relative_bbox_position: [0.425, 0.2, 0.125]
       #fixed_base: True
 
