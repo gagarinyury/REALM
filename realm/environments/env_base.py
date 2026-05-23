@@ -57,6 +57,7 @@ class RealmEnvironmentBase:
             "TOUCH": self.check_touch_condition,
             "LIFT_SLIGHT": self.check_lift_slight_condition,
             "LIFT_LARGE": self.check_lift_large_condition,
+            "LIFT_POUR": self.check_lift_pour_condition,
             "ROTATED": self.check_rotated,
             "PUSH": self.check_push,
             "MOVE_CLOSE": self.check_move_close_condition,
@@ -355,6 +356,11 @@ class RealmEnvironmentBase:
     def check_lift_large_condition(self, obs):
         return self.check_lift_and_distance_condition(distance_threshold=0.1, lift_threshold=0.075)
 
+    def check_lift_pour_condition(self, obs):
+        # Lifted at least 15 cm — used by pour tasks to ensure the bottle is
+        # well clear of the table before the pouring motion is rewarded.
+        return self.check_lift_and_distance_condition(distance_threshold=0.05, lift_threshold=0.15)
+
     def check_push(self, obs):
         mo = self.main_objects[0]
         push_cond = self.check_lift_and_distance_condition(distance_threshold=0.1, lift_threshold=-0.05)
@@ -427,25 +433,46 @@ class RealmEnvironmentBase:
             n_in = n_in.item()
         return int(n_in) >= min_particles
 
-    def check_pour_proxy(self, obs, min_balls_inside=1):
-        # Pour proxy: success when at least @min_balls_inside foam_balls
-        # (objects whose name contains 'foam_ball') end up Inside the target
-        # container. Looser than the strict all-balls-inside check so a few
-        # stuck/escaped balls don't block success. Avoids the fluid-particle
-        # setup of pour_liquid.
-        if not self.target_objects:
-            return False
-        target = self.target_objects[0]
-        foam_balls = []
+    def _foam_balls(self):
+        balls = []
         for obj_list in (self.main_objects, self.target_objects, getattr(self, "distractors", [])):
             for obj in obj_list:
                 if obj is not None and "foam_ball" in obj.name:
-                    foam_balls.append(obj)
-        if not foam_balls:
+                    balls.append(obj)
+        return balls
+
+    def _count_balls_inside(self, container):
+        n = 0
+        for fb in self._foam_balls():
+            try:
+                if bool(fb.states[og.object_states.Inside].get_value(container)):
+                    n += 1
+            except Exception:
+                pass
+        return n
+
+    def check_pour_proxy(self, obs, min_balls_inside=1):
+        # Pour proxy: success requires BOTH
+        #   (a) at least @min_balls_inside foam_balls now Inside the target container, AND
+        #   (b) the number of foam_balls still inside the SOURCE bottle has
+        #       decreased from its episode-start count (i.e., at least one ball
+        #       has actually left the bottle — distinguishes "successful pour"
+        #       from "balls were already in the target somehow").
+        # @initial_balls_in_source is captured by env_dynamic at the end of
+        # each reset() and stored on self._initial_balls_in_source.
+        if not self.target_objects or not self.main_objects:
             return False
-        n_inside = sum(
-            1 for fb in foam_balls
-            if bool(fb.states[og.object_states.Inside].get_value(target))
-        )
-        return n_inside >= min_balls_inside
+        if not self._foam_balls():
+            return False
+        target = self.target_objects[0]
+        source = self.main_objects[0]
+        n_in_target = self._count_balls_inside(target)
+        if n_in_target < min_balls_inside:
+            return False
+        initial = getattr(self, "_initial_balls_in_source", None)
+        if initial is None:
+            # No reference count captured yet — accept the target-count threshold alone.
+            return True
+        n_in_source = self._count_balls_inside(source)
+        return n_in_source < initial
 

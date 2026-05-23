@@ -68,9 +68,11 @@ def run_pour_debug(perturbation: str = "Default", max_steps: int = 1500, log_dir
     obs, rew, terminated, truncated, info = env.warmup(obs)
     print(f"DEBUG: Warmup + water fill done in {time.perf_counter() - start:.2f}s")
 
-    # Set bottle mass to 100 g and drop CoM near the bottle's bottom (matches
-    # what env_dynamic does for pour_proxy, but applied here too in case this
-    # debug script is run with a non-pour_proxy task).
+    # Set bottle mass to 330 g (heavier than the env_dynamic default of 100 g
+    # for debug-stability — makes the bottle less twitchy under arm contact)
+    # and drop CoM near the bottle's bottom (matches env_dynamic for pour_proxy,
+    # but applied here too in case this debug script is run with a non-pour_proxy
+    # task).
     target_mass_kg = 0.1
     for obj in env.main_objects:
         if "cola_bottle" in obj.name or obj.category == "cola_bottle":
@@ -204,16 +206,16 @@ def run_pour_debug(perturbation: str = "Default", max_steps: int = 1500, log_dir
     lift_ee_action = np.concatenate([lift_ee_pos, lift_ee_rot, lift_gripper_open])
 
     for t in range(max_steps):
-        if t < 400:
+        if t < 300:
             ee_action = reach_ee_action
-        elif t < 500:
+        elif t < 350:
             ee_action = grasp_ee_action
-        elif t < 550:
+        elif t < 400:
             ee_action = grasp_ee_action
             ee_action[-1] = 1
         else:
             ee_action = lift_ee_action
-            if t > 600:
+            if t > 450:
                 base_rpy = flip_pose_pointing_down(np.array([3.14, 1.57, 0.0]))
                 R_base = Rotation.from_euler('xyz', base_rpy)
                 R_wrist_roll = Rotation.from_euler('z', np.deg2rad(130))

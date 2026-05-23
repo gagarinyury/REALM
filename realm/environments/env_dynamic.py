@@ -106,13 +106,25 @@ def _panda_fk(q):
     return m[:3, 3].copy(), _R.from_matrix(m[:3, :3]).as_quat()
 
 
+def _set_gm(name, value):
+    """Set a gm.* macro tolerating that gm is write-once-per-process: if the
+    value is already what we want, do nothing; if not, bypass the _read lock
+    via direct dict access (gm[name] = value avoids __setattr__'s lock check).
+    Required when og.clear() rebuilds the sim and we re-construct an env with
+    its own macro requirements, since the first env's sim init has already
+    read those macros."""
+    from omnigibson.macros import gm
+    if gm.get(name) == value:
+        return
+    gm[name] = value
+
+
 def configure_pour_macros():
     # The pour_liquid task requires GPU dynamics + HQ rendering for fluid particles.
     # Must be set before the simulator is initialized; safe to call multiple times.
-    from omnigibson.macros import gm
-    gm.USE_GPU_DYNAMICS = True
-    gm.ENABLE_OBJECT_STATES = True
-    gm.ENABLE_HQ_RENDERING = True
+    _set_gm("USE_GPU_DYNAMICS", True)
+    _set_gm("ENABLE_OBJECT_STATES", True)
+    _set_gm("ENABLE_HQ_RENDERING", True)
     _patch_fluid_isosurface_fps_check()
 
 
@@ -120,10 +132,9 @@ def configure_pour_proxy_macros():
     # The pour_proxy task uses a rigid foam_ball instead of fluid particles, so
     # CPU dynamics is enough. We still want ENABLE_OBJECT_STATES so the Inside
     # state used by check_pour_proxy is available. Must be set before sim init.
-    from omnigibson.macros import gm
-    gm.USE_GPU_DYNAMICS = False
-    gm.ENABLE_OBJECT_STATES = True
-    gm.ENABLE_HQ_RENDERING = False
+    _set_gm("USE_GPU_DYNAMICS", False)
+    _set_gm("ENABLE_OBJECT_STATES", True)
+    _set_gm("ENABLE_HQ_RENDERING", False)
 
 
 def _patch_fluid_isosurface_fps_check():
@@ -1038,6 +1049,12 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             for _ in range(20):
                 og.sim.step()
             if self.is_source_upright():
+                # Record how many foam_balls are inside the source at episode
+                # start. check_pour_proxy compares to this to require that at
+                # least one ball has actually left the bottle for success.
+                if self.main_objects:
+                    self._initial_balls_in_source = self._count_balls_inside(self.main_objects[0])
+                    print(f"[pour_proxy reset] episode starts with {self._initial_balls_in_source} foam_ball(s) inside source")
                 return obs, _
             print(
                 f"[pour_proxy reset] Bottle not standing upright after attempt "
@@ -1048,6 +1065,10 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             f"[pour_proxy reset] FAILED to leave bottle upright after "
             f"{max_settle_attempts} attempts; returning last observation anyway."
         )
+        # Capture initial count even on the failure path so check_pour_proxy
+        # still has a reference (it might be 0 if the bottle was tipped).
+        if self.main_objects:
+            self._initial_balls_in_source = self._count_balls_inside(self.main_objects[0])
         return obs, _
 
     def _robot2world(self, action):

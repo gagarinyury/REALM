@@ -29,6 +29,7 @@ if __name__ == "__main__":
     parser.add_argument('--og_lite', action='store_true', help='Enable OG-lite on-demand rendering (render only when a new action chunk is needed, physics-only steps in between)')
     parser.add_argument('--n_pre_obs_renders', type=int, required=False, default=3, help='(og_lite) Number of render() flushes before capturing the observation for inference')
     parser.add_argument('--max_render_interval', type=int, required=False, default=8, help='(og_lite) Force a render flush after this many steps without one, even mid-chunk, to prevent renderer drift/segfaults')
+    parser.add_argument('--randomize_scene', action='store_true', help='Sample a new (scene_model, scene_part) from the task YAML\'s supported_scenes before each repeat. Requires a full env recreation per repeat.')
     args = parser.parse_args()
 
     assert args.model_name is not None
@@ -62,6 +63,7 @@ if __name__ == "__main__":
         og_lite=args.og_lite,
         n_pre_obs_renders=args.n_pre_obs_renders,
         max_render_interval=args.max_render_interval,
+        randomize_scene=args.randomize_scene,
     )
     og.shutdown()
     sys.exit(0)

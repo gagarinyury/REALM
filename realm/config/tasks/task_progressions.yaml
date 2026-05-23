@@ -43,7 +43,7 @@ pour_liquid:
 pour_proxy:
   - REACH
   - GRASP
-  - LIFT_SLIGHT
+  - LIFT_POUR
   - MOVE_CLOSE_XY
   - POURED_PROXY
 turn_faucet:

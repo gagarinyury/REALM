@@ -51,28 +51,37 @@ SUPPORTED_PERTURBATIONS = [
 ]
 
 
+def _set_gm(name, value):
+    """gm.* macros are write-once-per-process: trying to overwrite a macro
+    after it's been read raises. Helper that no-ops when the value already
+    matches, and bypasses the lock via dict access otherwise."""
+    if gm.get(name) == value:
+        return
+    gm[name] = value
+
+
 def set_sim_config(rendering_mode=None, robot="DROID", og_lite=False):
     if robot == "WidowX": # TODO: just read this from the yamls...
-        gm.DEFAULT_SIM_STEP_FREQ = 5
-        gm.DEFAULT_RENDERING_FREQ = 5
+        _set_gm("DEFAULT_SIM_STEP_FREQ", 5)
+        _set_gm("DEFAULT_RENDERING_FREQ", 5)
     elif "UR5" in robot:
-        gm.DEFAULT_SIM_STEP_FREQ = 30
-        gm.DEFAULT_RENDERING_FREQ = 30
+        _set_gm("DEFAULT_SIM_STEP_FREQ", 30)
+        _set_gm("DEFAULT_RENDERING_FREQ", 30)
     else:
-        gm.DEFAULT_SIM_STEP_FREQ = 15
-        gm.DEFAULT_RENDERING_FREQ = 15
+        _set_gm("DEFAULT_SIM_STEP_FREQ", 15)
+        _set_gm("DEFAULT_RENDERING_FREQ", 15)
 
-    gm.DEFAULT_PHYSICS_FREQ = 120
-    gm.ENABLE_TRANSITION_RULES = False # this needs to be off to avoid bug with sludge state during collision: https://github.com/StanfordVL/BEHAVIOR-1K/issues/1201
-    gm.ENABLE_OBJECT_STATES = True # this needs to be on because push_switch task usees the ToggledOn state
-    gm.RENDER_VIEWER_CAMERA=False
-    gm.ENABLE_HQ_RENDERING = False if rendering_mode == "r" else True
+    _set_gm("DEFAULT_PHYSICS_FREQ", 120)
+    _set_gm("ENABLE_TRANSITION_RULES", False)  # off to avoid sludge-state bug in BEHAVIOR-1K #1201
+    _set_gm("ENABLE_OBJECT_STATES", True)  # push_switch needs ToggledOn
+    _set_gm("RENDER_VIEWER_CAMERA", False)
+    _set_gm("ENABLE_HQ_RENDERING", False if rendering_mode == "r" else True)
 
     if og_lite:
         # Physics-only stepping; render only on explicit render_obs() calls
-        gm.ENABLE_VISUAL_UPDATES = False
-        gm.OBJECT_STATE_UPDATE_WHITELIST = ["ToggledOn"]
-        gm.RENDER_ON_STEP = False
+        _set_gm("ENABLE_VISUAL_UPDATES", False)
+        _set_gm("OBJECT_STATE_UPDATE_WHITELIST", ["ToggledOn"])
+        _set_gm("RENDER_ON_STEP", False)
 
     seed = 1234
     random.seed(seed)
@@ -104,6 +113,7 @@ def evaluate(
         og_lite=False,
         n_pre_obs_renders=3,
         max_render_interval=8,
+        randomize_scene=False,
 ):
     if rendering_mode is None:
         rendering_mode = "rt"
@@ -126,16 +136,32 @@ def evaluate(
     model_type = model_type # TODO: infer type from model name, rn this will just default to a pi model inference inside the client
     client = InferenceClient(model_type, host=host, port=port)
 
-    env = RealmEnvironmentDynamic(
-        config_path="/app/realm/config",
-        task_cfg_path=task_cfg_path,
-        perturbations=perturbations,
-        multi_view=multi_view,
-        no_rendering=no_render,
-        rendering_mode=rendering_mode,
-        spp=spp,
-        robot=robot
-    )
+    # Read the task YAML once to know which (scene_model, scene_part) pairs we
+    # can sample from if --randomize_scene is enabled.
+    import yaml as _yaml
+    with open(f"/app/realm/config/tasks/{task_cfg_path}", "r") as _f:
+        _task_yaml = _yaml.load(_f, Loader=_yaml.FullLoader)
+    supported_scenes = _task_yaml.get("supported_scenes", {})
+    scene_pairs = [(sm, sp) for sm, parts in supported_scenes.items() for sp in parts]
+    if randomize_scene and not scene_pairs:
+        og.log.warning("--randomize_scene was set but the task YAML has no supported_scenes; ignoring.")
+        randomize_scene = False
+
+    def _build_env(scene_model=None, scene_part=None):
+        return RealmEnvironmentDynamic(
+            config_path="/app/realm/config",
+            task_cfg_path=task_cfg_path,
+            perturbations=perturbations,
+            multi_view=multi_view,
+            no_rendering=no_render,
+            rendering_mode=rendering_mode,
+            spp=spp,
+            robot=robot,
+            scene_model=scene_model,
+            scene_part=scene_part,
+        )
+
+    env = _build_env()
 
     results = []
     start_repeat = 0
@@ -164,6 +190,20 @@ def evaluate(
 
         if run_id < start_repeat:
             continue
+
+        # Optionally tear down and rebuild the env on a new (scene_model,
+        # scene_part) before this repeat. og.clear() purges the current
+        # scene and relaunches the simulator instance so the new env
+        # starts from a clean slate.
+        if randomize_scene and scene_pairs:
+            scene_model, scene_part = scene_pairs[np.random.randint(len(scene_pairs))]
+            og.log.info(f"[--randomize_scene] repeat {run_id}: rebuilding env on ({scene_model}, {scene_part})")
+            # og.clear() purges the scene and relaunches sim with the same
+            # macro settings it was first configured with — do NOT call
+            # set_sim_config here; gm.* macros are write-once and re-setting
+            # them throws "Cannot set attribute … it has already been used".
+            og.clear()
+            env = _build_env(scene_model=scene_model, scene_part=scene_part)
 
         timestamp = datetime.datetime.now().strftime("%Y_%m_%d_%H:%M:%S")
         video_recorder = VideoRecorder(log_dir, timestamp, run_id, task, perturbations[0])
