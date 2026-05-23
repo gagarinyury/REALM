@@ -485,7 +485,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                         if hasattr(aabb_max[2], "item")
                         else aabb_max[2] - aabb_min[2]
                     )
-                    com_drop_world = np.array([0.0, 0.0, -0.85 * (world_z_extent / 2.0)])
+                    com_drop_world = np.array([0.0, 0.0, -0.7 * (world_z_extent / 2.0)])
                     com_offset_body = R.from_quat(pristine_quat).inv().apply(com_drop_world)
                     link_prim = bottle.root_link.prim
                     mass_api = lazy.pxr.UsdPhysics.MassAPI.Apply(link_prim)

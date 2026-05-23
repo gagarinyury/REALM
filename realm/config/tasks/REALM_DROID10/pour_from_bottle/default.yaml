@@ -32,7 +32,7 @@ main_objects:
       name: "cola_bottle"
       scale: [0.16, 0.16, 0.193]
       bounding_box: [0.07, 0.07, 0.22 ]
-      relative_bbox_position: [0.425, 0.4, 0.125]
+      relative_bbox_position: [0.425, 0.2, 0.125]
 
 #      category: "cola_bottle" #"reagent_bottle" #"soda_water_bottle" #"mug"
 #      model: "oyqdtz" #"trtrsl" #"upfssc" #"ehnmxj"
@@ -48,28 +48,28 @@ target_objects:
       category: "bowl"
       model: "jpvcjv"
       bounding_box: [ 0.20, 0.20, 0.07 ]
-      relative_bbox_position: [0.25, 0.43, 0 ]
+      relative_bbox_position: [0.4, 0.43, 0 ]
 
-distractors:
-    - type: "DatasetObject"
-      name: "sponge"
-      category: "sponge"
-      model: "qewotb"
-      bounding_box: [ 0.10, 0.07, 0.02 ]
-      relative_bbox_position: [0.25, 0.62, 0.055 ]
-    - type: "DatasetObject"
-      name: "pen"
-      category: "pen"
-      model: "gzrbrx"
-      orientation: [ -0.7071068, 0, 0, 0.7071068 ]
-      bounding_box: [ 0.16, 0.01, 0.01 ]
-      relative_bbox_position: [ 0.15, 0.2, 0.04 ]
-    - type: "DatasetObject"
-      name: "toy_box"
-      category: "toy_box"
-      model: "kvithq"
-      bounding_box: [ 0.12, 0.13, 0.06 ]
-      relative_bbox_position: [0.425, 0.175, 0.175]
+distractors: []
+#    - type: "DatasetObject"
+#      name: "sponge"
+#      category: "sponge"
+#      model: "qewotb"
+#      bounding_box: [ 0.10, 0.07, 0.02 ]
+#      relative_bbox_position: [0.25, 0.62, 0.055 ]
+#    - type: "DatasetObject"
+#      name: "pen"
+#      category: "pen"
+#      model: "gzrbrx"
+#      orientation: [ -0.7071068, 0, 0, 0.7071068 ]
+#      bounding_box: [ 0.16, 0.01, 0.01 ]
+#      relative_bbox_position: [ 0.15, 0.2, 0.04 ]
+#    - type: "DatasetObject"
+#      name: "toy_box"
+#      category: "toy_box"
+#      model: "kvithq"
+#      bounding_box: [ 0.12, 0.13, 0.06 ]
+#      relative_bbox_position: [0.425, 0.175, 0.175]
 
 
 cached_semantic_perturbations:

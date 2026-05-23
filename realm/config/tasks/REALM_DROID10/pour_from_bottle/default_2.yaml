@@ -32,7 +32,7 @@ main_objects:
       name: "cola_bottle"
       scale: [0.125, 0.125, 0.15]
       bounding_box: [0.07, 0.07, 0.22 ]
-      relative_bbox_position: [0.425, 0.4, 0.125]
+      relative_bbox_position: [0.425, 0.2, 0.125]
       #fixed_base: True
 
 #      category: "cola_bottle" #"reagent_bottle" #"soda_water_bottle" #"mug"
@@ -51,25 +51,25 @@ target_objects:
       bounding_box: [ 0.15, 0.15, 0.06 ]
       relative_bbox_position: [0.25, 0.43, 0 ]
 
-distractors:
-    - type: "DatasetObject"
-      name: "apple"
-      category: "apple"
-      model: "agveuv"
-      bounding_box: [0.09, 0.07, 0.07 ]
-      relative_bbox_position: [0.41, 0.62, 0.055 ]
-    - type: "DatasetObject"
-      name: "box_of_almond_milk"
-      category: "box_of_almond_milk"
-      model: "oiiqwq"
-      bounding_box: [ 0.07, 0.08, 0.21 ]
-      relative_bbox_position: [ 0.15, 0.2, 0.04 ]
-    - type: "DatasetObject"
-      name: "jar_of_dill_seed"
-      category: "jar_of_dill_seed"
-      model: "reavkt"
-      bounding_box: [ 0.06, 0.06, 0.07 ]
-      relative_bbox_position: [0.425, 0.175, 0.175]
+distractors: []
+#    - type: "DatasetObject"
+#      name: "apple"
+#      category: "apple"
+#      model: "agveuv"
+#      bounding_box: [0.09, 0.07, 0.07 ]
+#      relative_bbox_position: [0.41, 0.62, 0.055 ]
+#    - type: "DatasetObject"
+#      name: "box_of_almond_milk"
+#      category: "box_of_almond_milk"
+#      model: "oiiqwq"
+#      bounding_box: [ 0.07, 0.08, 0.21 ]
+#      relative_bbox_position: [ 0.15, 0.2, 0.04 ]
+#    - type: "DatasetObject"
+#      name: "jar_of_dill_seed"
+#      category: "jar_of_dill_seed"
+#      model: "reavkt"
+#      bounding_box: [ 0.06, 0.06, 0.07 ]
+#      relative_bbox_position: [0.425, 0.175, 0.175]
 
 
 cached_semantic_perturbations:
