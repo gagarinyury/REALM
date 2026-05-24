@@ -590,6 +590,16 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             y_max = scene_data["y_max"]
             z = scene_data["z"]
             self.spawn_bbox = np.array([x_min, x_max, y_min, y_max, z])
+
+            # Optional task-level shift of the spawn bbox along the robot's
+            # forward direction (world-frame), derived from the scene's z-rot.
+            # Positive shift moves the workspace away from the robot.
+            bbox_shift = task_cfg.get("bbox_shift_away_from_robot", 0.0)
+            if bbox_shift:
+                rot_z_rad = math.radians(scene_data["rot"][-1])
+                dx = bbox_shift * math.cos(rot_z_rad)
+                dy = bbox_shift * math.sin(rot_z_rad)
+                self.spawn_bbox = self.spawn_bbox + np.array([dx, dx, dy, dy, 0.0])
         else:
             self.spawn_bbox = None
 
