@@ -10,16 +10,18 @@ instruction_target_to_replace: "bowl"
 instruction_verb_to_replace: "pour"
 
 supported_scenes:
-  IMPACT:
-    - "default"
   Pomaria_1_int:
     - "Table"
+#  Merom_1_int:
+#    - "Table"
 
-use_droid_with_base: false
+use_droid_with_base: true
+
+bbox_shift_away_from_robot: 0.15
 
 camera_extrinsics:
-  cam1: "ep_024104_cam1"
-  cam2: "ep_024104_cam2"
+  cam1: "ep_001042_cam1"
+  cam2: "ep_001042_cam2"
 
 #  cam1: "IMPACT_pouring_task_cam1"
 #  cam2: "IMPACT_pouring_task_cam2"
@@ -51,25 +53,25 @@ target_objects:
       bounding_box: [ 0.15, 0.15, 0.06 ]
       relative_bbox_position: [0.15, 0.43, 0 ]
 
-distractors: []
-#    - type: "DatasetObject"
-#      name: "apple"
-#      category: "apple"
-#      model: "agveuv"
-#      bounding_box: [0.09, 0.07, 0.07 ]
-#      relative_bbox_position: [0.41, 0.62, 0.055 ]
-#    - type: "DatasetObject"
-#      name: "box_of_almond_milk"
-#      category: "box_of_almond_milk"
-#      model: "oiiqwq"
-#      bounding_box: [ 0.07, 0.08, 0.21 ]
-#      relative_bbox_position: [ 0.15, 0.2, 0.04 ]
-#    - type: "DatasetObject"
-#      name: "jar_of_dill_seed"
-#      category: "jar_of_dill_seed"
-#      model: "reavkt"
-#      bounding_box: [ 0.06, 0.06, 0.07 ]
-#      relative_bbox_position: [0.425, 0.175, 0.175]
+distractors:
+    - type: "DatasetObject"
+      name: "apple"
+      category: "apple"
+      model: "agveuv"
+      bounding_box: [0.09, 0.07, 0.07 ]
+      relative_bbox_position: [0.31, 0.62, 0.055 ]
+    - type: "DatasetObject"
+      name: "shears"
+      category: "shears"
+      model: "iizidc"
+      bounding_box: [ 0.05, 0.13, 0.0075 ]
+      relative_bbox_position: [ 0.2, 0.1, 0.075 ]
+    - type: "DatasetObject"
+      name: "jar_of_dill_seed"
+      category: "jar_of_dill_seed"
+      model: "reavkt"
+      bounding_box: [ 0.06, 0.06, 0.07 ]
+      relative_bbox_position: [0.025, 0.175, 0.175]
 
 
 cached_semantic_perturbations:

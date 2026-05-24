@@ -10,16 +10,16 @@ instruction_target_to_replace: "bowl"
 instruction_verb_to_replace: "pour"
 
 supported_scenes:
-  IMPACT:
-    - "default"
   Pomaria_1_int:
     - "Table"
 
-use_droid_with_base: false
+use_droid_with_base: true
+
+bbox_shift_away_from_robot: 0.15
 
 camera_extrinsics:
-  cam1: "ep_024104_cam1"
-  cam2: "ep_024104_cam2"
+  cam1: "default"
+  cam2: "CP3"
 
 #  cam1: "IMPACT_pouring_task_cam1"
 #  cam2: "IMPACT_pouring_task_cam2"
@@ -51,26 +51,26 @@ target_objects:
       #relative_bbox_position: [0.125, 0.3, 0 ]
       relative_bbox_position: [0.3, 0.43, 0 ]
 
-distractors: []
-#    - type: "DatasetObject"
-#      name: "sponge"
-#      category: "sponge"
-#      model: "qewotb"
-#      bounding_box: [ 0.10, 0.07, 0.02 ]
-#      relative_bbox_position: [0.25, 0.62, 0.055 ]
-#    - type: "DatasetObject"
-#      name: "pen"
-#      category: "pen"
-#      model: "gzrbrx"
-#      orientation: [ -0.7071068, 0, 0, 0.7071068 ]
-#      bounding_box: [ 0.16, 0.01, 0.01 ]
-#      relative_bbox_position: [ 0.15, 0.2, 0.04 ]
-#    - type: "DatasetObject"
-#      name: "toy_box"
-#      category: "toy_box"
-#      model: "kvithq"
-#      bounding_box: [ 0.12, 0.13, 0.06 ]
-#      relative_bbox_position: [0.425, 0.175, 0.175]
+distractors:
+    - type: "DatasetObject"
+      name: "sponge"
+      category: "sponge"
+      model: "qewotb"
+      bounding_box: [ 0.10, 0.07, 0.02 ]
+      relative_bbox_position: [0.25, 0.62, 0.055 ]
+    - type: "DatasetObject"
+      name: "pen"
+      category: "pen"
+      model: "gzrbrx"
+      orientation: [ -0.7071068, 0, 0, 0.7071068 ]
+      bounding_box: [ 0.16, 0.01, 0.01 ]
+      relative_bbox_position: [ 0.15, 0.2, 0.04 ]
+    - type: "DatasetObject"
+      name: "coffee_cup"
+      category: "coffee_cup"
+      model: "ckkwmj"
+      bounding_box: [ 0.09, 0.07, 0.07 ]
+      relative_bbox_position: [0.065, 0.45, 0.175]
 
 
 cached_semantic_perturbations:
