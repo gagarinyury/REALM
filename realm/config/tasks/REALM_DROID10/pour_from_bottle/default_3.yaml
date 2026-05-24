@@ -32,7 +32,7 @@ main_objects:
       name: "cola_bottle"
       scale: [ 0.11, 0.125, 0.11 ]
       bounding_box: [0.07, 0.07, 0.22 ]
-      relative_bbox_position: [0.425, 0.2, 0.15]
+      relative_bbox_position: [0.325, 0.2, 0.15]
       #fixed_base: True
 
 #      category: "cola_bottle" #"reagent_bottle" #"soda_water_bottle" #"mug"
@@ -49,7 +49,7 @@ target_objects:
       category: "bowl"
       model: "adciys"
       bounding_box: [ 0.15, 0.15, 0.06 ]
-      relative_bbox_position: [0.25, 0.43, 0 ]
+      relative_bbox_position: [0.15, 0.43, 0 ]
 
 distractors: []
 #    - type: "DatasetObject"

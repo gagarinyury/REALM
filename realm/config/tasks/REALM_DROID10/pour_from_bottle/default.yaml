@@ -32,7 +32,7 @@ main_objects:
       name: "cola_bottle"
       scale: [0.16, 0.16, 0.193]
       bounding_box: [0.07, 0.07, 0.22 ]
-      relative_bbox_position: [0.425, 0.2, 0.125]
+      relative_bbox_position: [0.325, 0.2, 0.125]
 
 #      category: "cola_bottle" #"reagent_bottle" #"soda_water_bottle" #"mug"
 #      model: "oyqdtz" #"trtrsl" #"upfssc" #"ehnmxj"
@@ -49,7 +49,7 @@ target_objects:
       model: "jpvcjv"
       bounding_box: [ 0.20, 0.20, 0.07 ]
       #relative_bbox_position: [0.125, 0.3, 0 ]
-      relative_bbox_position: [0.4, 0.43, 0 ]
+      relative_bbox_position: [0.3, 0.43, 0 ]
 
 distractors: []
 #    - type: "DatasetObject"
