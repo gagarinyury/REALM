@@ -114,6 +114,7 @@ def evaluate(
         n_pre_obs_renders=3,
         max_render_interval=8,
         randomize_scene=False,
+        enable_bbox_shift=False,
 ):
     if rendering_mode is None:
         rendering_mode = "rt"
@@ -159,6 +160,7 @@ def evaluate(
             robot=robot,
             scene_model=scene_model,
             scene_part=scene_part,
+            enable_bbox_shift=enable_bbox_shift,
         )
 
     env = _build_env()

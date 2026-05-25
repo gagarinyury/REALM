@@ -30,6 +30,7 @@ if __name__ == "__main__":
     parser.add_argument('--n_pre_obs_renders', type=int, required=False, default=3, help='(og_lite) Number of render() flushes before capturing the observation for inference')
     parser.add_argument('--max_render_interval', type=int, required=False, default=8, help='(og_lite) Force a render flush after this many steps without one, even mid-chunk, to prevent renderer drift/segfaults')
     parser.add_argument('--randomize_scene', action='store_true', help='Sample a new (scene_model, scene_part) from the task YAML\'s supported_scenes before each repeat. Requires a full env recreation per repeat.')
+    parser.add_argument('--enable_bbox_shift', action='store_true', help='Apply the task YAML\'s bbox_shift_away_from_robot to the spawn bbox (pushing the workspace away from the robot). Off by default; YAML value is ignored unless this flag is set.')
     args = parser.parse_args()
 
     assert args.model_name is not None
@@ -64,6 +65,7 @@ if __name__ == "__main__":
         n_pre_obs_renders=args.n_pre_obs_renders,
         max_render_interval=args.max_render_interval,
         randomize_scene=args.randomize_scene,
+        enable_bbox_shift=args.enable_bbox_shift,
     )
     og.shutdown()
     sys.exit(0)

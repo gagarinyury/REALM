@@ -326,7 +326,8 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         multi_view: bool = False,
         rendering_mode: str = "rt",
         spp: int = 8,
-        robot: str = "DROID"
+        robot: str = "DROID",
+        enable_bbox_shift: bool = False,
     ) -> None:
         assert not (multi_view and no_rendering), f"Multi-view rendering was enabled during no_rendering mode. Either one is likely a mistake."
         self.task_cfg_path = "/".join(task_cfg_path.split("/")[-3:])
@@ -343,6 +344,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         self.no_rendering = no_rendering
         self.rendering_mode = rendering_mode
         self.spp = spp
+        self.enable_bbox_shift = enable_bbox_shift
         self.config_path = config_path
         self.scene_model = scene_model
         self.scene_part = scene_part
@@ -679,7 +681,8 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             # Optional task-level shift of the spawn bbox along the robot's
             # forward direction (world-frame), derived from the scene's z-rot.
             # Positive shift moves the workspace away from the robot.
-            bbox_shift = task_cfg.get("bbox_shift_away_from_robot", 0.0)
+            # Gated by enable_bbox_shift so the YAML value is opt-in per run.
+            bbox_shift = task_cfg.get("bbox_shift_away_from_robot", 0.0) if self.enable_bbox_shift else 0.0
             if bbox_shift:
                 rot_z_rad = math.radians(scene_data["rot"][-1])
                 dx = bbox_shift * math.cos(rot_z_rad)
