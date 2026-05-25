@@ -114,10 +114,10 @@ class DROID(ManipulationRobot):
             ])
             self._teleop_rotation_offset = th.tensor([-1, 0, 0, 0])
             self._ag_start_points = [
-                GraspingPoint(link_name="panda_leftfinger", position=th.tensor([0.0, 0.001, 0.045])),
+                GraspingPoint(link_name="gripper_link_left_inner_finger", position=th.tensor([0.0, 0.001, 0.045])),
             ]
             self._ag_end_points = [
-                GraspingPoint(link_name="panda_rightfigner", position=th.tensor([0.0, 0.001, 0.045])),
+                GraspingPoint(link_name="gripper_link_right_inner_finger", position=th.tensor([0.0, 0.001, 0.045])),
             ]
 
         self.controller_name = controller_name #"JointController"
@@ -234,7 +234,7 @@ class DROID(ManipulationRobot):
 
     @property
     def assisted_grasp_end_points(self):
-        return {self.default_arm: self._ag_start_points}
+        return {self.default_arm: self._ag_end_points}
 
     @property
     def disabled_collision_pairs(self):
