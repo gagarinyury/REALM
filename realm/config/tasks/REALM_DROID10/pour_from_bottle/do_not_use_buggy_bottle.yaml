@@ -9,17 +9,23 @@ instruction_obj_to_replace: "bottle"
 instruction_target_to_replace: "bowl"
 instruction_verb_to_replace: "pour"
 
-supported_scenes:
-  Benevolence_1_int:
-    - "Dining_Table"
+n_foam_balls: 5
 
-use_droid_with_base: true #false
+supported_scenes:
+  Pomaria_1_int:
+    - "Table"
+#  Benevolence_1_int:
+#    - "Dining_Table"
+#  Merom_1_int:
+#    - "Table"
+
+use_droid_with_base: true
 
 bbox_shift_away_from_robot: 0.15
 
 camera_extrinsics:
-  cam1: "ep_024104_cam1"
-  cam2: "ep_024104_cam2"
+  cam1: "ep_001042_cam1"
+  cam2: "ep_001042_cam2"
 
 #  cam1: "IMPACT_pouring_task_cam1"
 #  cam2: "IMPACT_pouring_task_cam2"
@@ -27,12 +33,13 @@ camera_extrinsics:
 reset_joint_pos: [ 0.0055956,  -0.46229482, -0.10837201, -2.22445,   -0.02223617,  1.6368663, -0.28468588]
 
 main_objects:
-  - type: "DatasetObject"
-    name: "cola_bottle"
-    category: "cola_bottle"
-    model: "oyqdtz"
-    bounding_box: [ 0.07, 0.07, 0.22 ]
-    relative_bbox_position: [ 0.325, 0.2, 0.15 ]
+    - type: "USDObject"
+      usd_path: "/app/custom_assets/bottle6789/bottle8_obj/bottle_v2.usd"
+      name: "cola_bottle"
+      scale: [0.125, 0.125, 0.15]
+      bounding_box: [0.08, 0.08, 0.22 ]
+      relative_bbox_position: [0.325, 0.2, 0.125]
+      #fixed_base: True
 
 #      category: "cola_bottle" #"reagent_bottle" #"soda_water_bottle" #"mug"
 #      model: "oyqdtz" #"trtrsl" #"upfssc" #"ehnmxj"
@@ -46,29 +53,29 @@ target_objects:
     - type: "DatasetObject"
       name: "bowl"
       category: "bowl"
-      model: "fiarri"
-      bounding_box: [ 0.12, 0.11, 0.06 ]
+      model: "adciys"
+      bounding_box: [ 0.15, 0.15, 0.06 ]
       relative_bbox_position: [0.15, 0.43, 0 ]
 
 distractors:
     - type: "DatasetObject"
-      name: "pruner"
-      category: "pruner"
-      model: "lucqrs"
-      bounding_box: [ 0.03, 0.07, 0.23 ]
-      relative_bbox_position: [0.55, 0.45, 0.055 ]
+      name: "apple"
+      category: "apple"
+      model: "agveuv"
+      bounding_box: [0.09, 0.07, 0.07 ]
+      relative_bbox_position: [0.31, 0.62, 0.055 ]
     - type: "DatasetObject"
-      name: "trowel"
-      category: "trowel"
-      model: "ematag"
-      bounding_box: [ 0.28, 0.05, 0.02 ]
-      relative_bbox_position: [ 0.025, 0.28, 0.075 ]
+      name: "shears"
+      category: "shears"
+      model: "iizidc"
+      bounding_box: [ 0.05, 0.13, 0.0075 ]
+      relative_bbox_position: [ 0.2, 0.1, 0.075 ]
     - type: "DatasetObject"
-      name: "pot_plant"
-      category: "pot_plant"
-      model: "arwvvc"
-      bounding_box: [ 0.2, 0.2, 0.2 ]
-      relative_bbox_position: [0.52, 0.175, 0.21]
+      name: "jar_of_dill_seed"
+      category: "jar_of_dill_seed"
+      model: "reavkt"
+      bounding_box: [ 0.06, 0.06, 0.07 ]
+      relative_bbox_position: [0.025, 0.175, 0.175]
 
 
 cached_semantic_perturbations:

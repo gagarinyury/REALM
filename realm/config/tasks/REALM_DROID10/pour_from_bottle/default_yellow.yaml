@@ -9,19 +9,20 @@ instruction_obj_to_replace: "bottle"
 instruction_target_to_replace: "bowl"
 instruction_verb_to_replace: "pour"
 
+n_foam_balls: 15
+
 supported_scenes:
-  Pomaria_1_int:
-    - "Table"
-#  Merom_1_int:
-#    - "Table"
+  office_cubicles_left:
+    - "Office_Desk"
+
 
 use_droid_with_base: true
 
 bbox_shift_away_from_robot: 0.15
 
 camera_extrinsics:
-  cam1: "ep_001042_cam1"
-  cam2: "ep_001042_cam2"
+  cam1: "ep_002212_cam1"
+  cam2: "ep_002212_cam2"
 
 #  cam1: "IMPACT_pouring_task_cam1"
 #  cam2: "IMPACT_pouring_task_cam2"
@@ -30,12 +31,11 @@ reset_joint_pos: [ 0.0055956,  -0.46229482, -0.10837201, -2.22445,   -0.02223617
 
 main_objects:
     - type: "USDObject"
-      usd_path: "/app/custom_assets/bottle6789/bottle8_obj/bottle_v2.usd"
+      usd_path: "/app/custom_assets/bottle6789/bottle2_obj/bottle.usd"
       name: "cola_bottle"
-      scale: [0.125, 0.125, 0.15]
-      bounding_box: [0.08, 0.08, 0.22 ]
-      relative_bbox_position: [0.325, 0.2, 0.125]
-      #fixed_base: True
+      scale: [ 0.11, 0.125, 0.11 ]
+      bounding_box: [0.07, 0.07, 0.22 ]
+      relative_bbox_position: [0.325, 0.2, 0.15]
 
 #      category: "cola_bottle" #"reagent_bottle" #"soda_water_bottle" #"mug"
 #      model: "oyqdtz" #"trtrsl" #"upfssc" #"ehnmxj"
@@ -49,29 +49,29 @@ target_objects:
     - type: "DatasetObject"
       name: "bowl"
       category: "bowl"
-      model: "adciys"
-      bounding_box: [ 0.15, 0.15, 0.06 ]
+      model: "rlwpcd"
+      bounding_box: [ 0.13, 0.15, 0.06 ]
       relative_bbox_position: [0.15, 0.43, 0 ]
 
 distractors:
     - type: "DatasetObject"
-      name: "apple"
-      category: "apple"
-      model: "agveuv"
-      bounding_box: [0.09, 0.07, 0.07 ]
+      name: "dental_floss"
+      category: "dental_floss"
+      model: "aokqke"
+      bounding_box: [0.04, 0.04, 0.02 ]
       relative_bbox_position: [0.31, 0.62, 0.055 ]
     - type: "DatasetObject"
-      name: "shears"
-      category: "shears"
-      model: "iizidc"
-      bounding_box: [ 0.05, 0.13, 0.0075 ]
-      relative_bbox_position: [ 0.2, 0.1, 0.075 ]
-    - type: "DatasetObject"
-      name: "jar_of_dill_seed"
-      category: "jar_of_dill_seed"
-      model: "reavkt"
-      bounding_box: [ 0.06, 0.06, 0.07 ]
-      relative_bbox_position: [0.025, 0.175, 0.175]
+      name: "hat"
+      category: "hat"
+      model: "wkrzep"
+      bounding_box: [ 0.2, 0.2, 0.08 ]
+      relative_bbox_position: [ 0.025, 0.2, 0.25 ]
+#    - type: "DatasetObject"
+#      name: "laptop"
+#      category: "laptop"
+#      model: "izydvb"
+#      bounding_box: [ 0.25, 0.38, 0.04 ]
+#      relative_bbox_position: [0.1, 0.175, 0.1]
 
 
 cached_semantic_perturbations:

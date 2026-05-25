@@ -9,6 +9,10 @@ instruction_obj_to_replace: "bottle"
 instruction_target_to_replace: "bowl"
 instruction_verb_to_replace: "pour"
 
+# Number of foam_balls procedurally spawned inside the source bottle for the
+# pour_proxy check. Read by env_dynamic at construction time.
+n_foam_balls: 15
+
 supported_scenes:
   Pomaria_1_int:
     - "Table"
@@ -33,6 +37,8 @@ main_objects:
       scale: [0.16, 0.16, 0.193]
       bounding_box: [0.07, 0.07, 0.22 ]
       relative_bbox_position: [0.325, 0.2, 0.125]
+      #relative_bbox_position: [0.275, 0.42, 0.125] # debug
+      #relative_bbox_position: [0.1, 0.38, 0.125] # debug
 
 #      category: "cola_bottle" #"reagent_bottle" #"soda_water_bottle" #"mug"
 #      model: "oyqdtz" #"trtrsl" #"upfssc" #"ehnmxj"
