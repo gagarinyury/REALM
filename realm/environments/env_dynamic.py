@@ -106,6 +106,90 @@ def _panda_fk(q):
     return m[:3, 3].copy(), _R.from_matrix(m[:3, :3]).as_quat()
 
 
+def _is_under_colliders_xform(prim):
+    """True if any ancestor Xform's name contains 'collider' (case-insensitive)."""
+    p = prim.GetParent()
+    while p and p.IsValid():
+        if p.IsA(lazy.pxr.UsdGeom.Xform):
+            n = p.GetName().lower()
+            if "collider" in n:
+                return True
+        p = p.GetParent()
+    return False
+
+
+def _has_any_collision_api(prim):
+    """True if the prim has any UsdPhysics or Physx collision API applied."""
+    if prim.HasAPI(lazy.pxr.UsdPhysics.CollisionAPI):
+        return True
+    if prim.HasAPI(lazy.pxr.UsdPhysics.MeshCollisionAPI):
+        return True
+    physx = lazy.pxr.PhysxSchema
+    for n in (
+        "PhysxCollisionAPI",
+        "PhysxConvexHullCollisionAPI",
+        "PhysxConvexDecompositionCollisionAPI",
+        "PhysxTriangleMeshCollisionAPI",
+        "PhysxSDFMeshCollisionAPI",
+        "PhysxTriangleMeshSimplificationCollisionAPI",
+    ):
+        cls = getattr(physx, n, None)
+        if cls is not None and prim.HasAPI(cls):
+            return True
+    return False
+
+
+def _find_collider_meshes(root_prim):
+    """Walk @root_prim's subtree and return every Mesh prim that is either
+    inside an Xform named 'collider(s)' (case-insensitive) or has a Physics
+    collision API applied. Visual-only meshes are skipped."""
+    collider_meshes = []
+    stack = [root_prim]
+    while stack:
+        prim = stack.pop()
+        if prim.IsA(lazy.pxr.UsdGeom.Mesh):
+            if _is_under_colliders_xform(prim) or _has_any_collision_api(prim):
+                collider_meshes.append(prim)
+        for child in prim.GetChildren():
+            stack.append(child)
+    return collider_meshes
+
+
+def _set_object_mass_via_colliders(obj, total_mass_kg):
+    """Distribute @total_mass_kg equally across the collider meshes under
+    @obj's prim (meshes inside a 'colliders' Xform or with a collision API
+    applied). Author MassAPI on each. Falls back to per-link distribution if
+    no collider meshes are found.
+
+    PhysX's per-shape mass authoring lets the body's effective mass and inertia
+    be computed from where the collision shapes actually live in body-local
+    space — useful for bottles whose colliders are clustered at the base, for
+    instance. We also still set link.mass to the total so PhysX has a
+    consistent reference."""
+    obj_prim = obj.prim
+    collider_meshes = _find_collider_meshes(obj_prim)
+    if not collider_meshes:
+        # Fallback: equal split across links.
+        n_links = max(len(obj._links), 1)
+        for link in obj._links.values():
+            link.mass = total_mass_kg / n_links
+        print(f"[mass-assign] {obj.name}: no collider meshes; fallback link-split {total_mass_kg / n_links:.4f} kg × {n_links}")
+        return
+
+    per_mesh_mass = total_mass_kg / len(collider_meshes)
+    for mesh in collider_meshes:
+        mass_api = lazy.pxr.UsdPhysics.MassAPI.Apply(mesh)
+        if not mass_api.GetMassAttr():
+            mass_api.CreateMassAttr()
+        mass_api.GetMassAttr().Set(float(per_mesh_mass))
+
+    # Also set the link's authored mass so PhysX has a consistent total.
+    for link in obj._links.values():
+        link.mass = total_mass_kg / max(len(obj._links), 1)
+
+    print(f"[mass-assign] {obj.name}: distributed {total_mass_kg} kg across {len(collider_meshes)} collider mesh(es) at {per_mesh_mass:.4f} kg each")
+
+
 def _set_gm(name, value):
     """Set a gm.* macro tolerating that gm is write-once-per-process: if the
     value is already what we want, do nothing; if not, bypass the _read lock
@@ -330,9 +414,9 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             base_foam_z = surface_z + mo_relative_z + 0.03  # +3cm lift so balls don't intersect bottle base
             ball_diameter = 0.01  # 10mm; larger so they're less prone to bugging through convex-decomp seams
             z_spacing = ball_diameter * 1.5
-            # default_4 config exists to test the single-ball pour variant.
-            _cfg_name = self.task_cfg_path.split("/")[-1].replace(".yaml", "").replace(".cfg", "")
-            n_foam_balls = 1 if _cfg_name == "default_4" else 5
+            # Read n_foam_balls from the task YAML's `n_foam_balls` key.
+            # Defaults to 5 if the key is absent.
+            n_foam_balls = int(cfg.get("n_foam_balls", 5))
             for i in range(n_foam_balls):
                 fb_cfg = {
                     "type": "PrimitiveObject",
@@ -398,13 +482,14 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                     n_links = max(len(obj._links), 1)
                     for link in obj._links.values():
                         link.mass = foam_ball_mass_kg / n_links
-            # Source bottle: explicit 100 g so dynamics are predictable across
-            # custom USDs that might author very different default masses.
+            # Source bottle: explicit 100 g distributed equally across only the
+            # *collider* meshes (those inside an Xform named "collider(s)" or
+            # with a PhysicsCollisionAPI applied). Visual / purpose=guide-only
+            # meshes are skipped — they have no physics contribution. Falls
+            # back to link-level distribution if no collider meshes are found.
             bottle_mass_kg = 0.1
             for obj in self.main_objects:
-                n_links = max(len(obj._links), 1)
-                for link in obj._links.values():
-                    link.mass = bottle_mass_kg / n_links
+                _set_object_mass_via_colliders(obj, bottle_mass_kg)
             og.sim.play()
 
             # Stash every foam_ball far away from the bottle BEFORE settling.

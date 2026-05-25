@@ -63,14 +63,14 @@ distractors:
       category: "sponge"
       model: "qewotb"
       bounding_box: [ 0.10, 0.07, 0.02 ]
-      relative_bbox_position: [0.25, 0.62, 0.055 ]
+      relative_bbox_position: [0.11, 0.55, 0.055 ]
     - type: "DatasetObject"
       name: "pen"
       category: "pen"
       model: "gzrbrx"
       orientation: [ -0.7071068, 0, 0, 0.7071068 ]
       bounding_box: [ 0.16, 0.01, 0.01 ]
-      relative_bbox_position: [ 0.15, 0.2, 0.04 ]
+      relative_bbox_position: [ 0.1, 0.275, 0.04 ]
     - type: "DatasetObject"
       name: "coffee_cup"
       category: "coffee_cup"

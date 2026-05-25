@@ -9,7 +9,7 @@ instruction_obj_to_replace: "bottle"
 instruction_target_to_replace: "bowl"
 instruction_verb_to_replace: "pour"
 
-n_foam_balls: 15
+n_foam_balls: 8 #15
 
 supported_scenes:
   office_cubicles_left:

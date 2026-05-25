@@ -58,7 +58,7 @@ distractors:
       category: "pruner"
       model: "lucqrs"
       bounding_box: [ 0.03, 0.07, 0.23 ]
-      relative_bbox_position: [0.55, 0.45, 0.055 ]
+      relative_bbox_position: [0.48, 0.45, 0.055 ]
     - type: "DatasetObject"
       name: "trowel"
       category: "trowel"

@@ -224,6 +224,44 @@ def process_droid_categories(original_dict, obj_category):
     return flattened_list
 
 
+def _is_valid_xy(x, y, xmin, xmax, ymin, ymax, half_width, half_depth, min_separation, placed_objects_info):
+    """In-bbox + no-collision check used by both the legacy and new placement paths."""
+    if not (xmin + half_width <= x <= xmax - half_width and
+            ymin + half_depth <= y <= ymax - half_depth):
+        return False
+    for px, py, phw, phd in placed_objects_info:
+        if (abs(x - px) < half_width + phw + min_separation and
+                abs(y - py) < half_depth + phd + min_separation):
+            return False
+    return True
+
+
+def _nearest_valid_from_target(target_x, target_y, xmin, xmax, ymin, ymax,
+                                half_width, half_depth, min_separation,
+                                placed_objects_info, max_radius_steps=50,
+                                step_size=0.015, angle_samples=12):
+    """Given a random target point @target_x, @target_y, find the closest valid
+    (in-bbox, non-colliding) position via outward spiral search. Equal probability
+    of landing in any free region regardless of its area — sampling the *target*
+    uniformly across the whole spawn_bbox, then snapping inward."""
+    if _is_valid_xy(target_x, target_y, xmin, xmax, ymin, ymax,
+                    half_width, half_depth, min_separation, placed_objects_info):
+        return target_x, target_y
+
+    for ring_idx in range(1, max_radius_steps + 1):
+        radius = ring_idx * step_size
+        # Random angle offset per ring so we don't bias toward axes.
+        base_angle = np.random.uniform(0, 2 * np.pi)
+        for k in range(angle_samples):
+            theta = base_angle + 2 * np.pi * k / angle_samples
+            x = target_x + radius * np.cos(theta)
+            y = target_y + radius * np.sin(theta)
+            if _is_valid_xy(x, y, xmin, xmax, ymin, ymax,
+                            half_width, half_depth, min_separation, placed_objects_info):
+                return x, y
+    return None, None
+
+
 def get_non_colliding_positions_for_objects(
         xmin, xmax, ymin, ymax, z, obj_cfg,
         main_object_names,
@@ -283,30 +321,29 @@ def get_non_colliding_positions_for_objects(
             cfg["bounding_box"] = [0.08, 0.08, 0.08] # Default if not present
 
         bbox = cfg["bounding_box"]
-        # Corrected: Access specific elements of bounding_box list
         half_width = bbox[0] / 2
         half_depth = bbox[1] / 2
         placed = False
 
-        for _ in range(max_attempts_per_object):
-            x_center = np.random.uniform(xmin + half_width, xmax - half_width)
-            y_center = np.random.uniform(ymin + half_depth, ymax - half_depth)
-
-            collision = False
-            for px, py, phw, phd in placed_objects_info:
-                dist_x = abs(x_center - px)
-                dist_y = abs(y_center - py)
-
-                # Check for collision with existing objects, considering min_separation
-                if dist_x < (half_width + phw + min_separation) and \
-                        dist_y < (half_depth + phd + min_separation):
-                    collision = True
-                    break
-
-            if not collision:
-                # If no collision, place the object
+        # Strategy: sample a uniformly random TARGET point in the spawn_bbox,
+        # then snap to the nearest collision-free position via outward spiral
+        # search. This gives equal probability of landing in any free region
+        # regardless of its area — uniform-then-reject otherwise weights the
+        # placement toward whichever free region is largest, producing the
+        # "object always on the same side of the table" pattern.
+        # We try several different random target points before giving up.
+        n_target_tries = max(1, max_attempts_per_object // 200)
+        for _ in range(n_target_tries):
+            target_x = np.random.uniform(xmin + half_width, xmax - half_width)
+            target_y = np.random.uniform(ymin + half_depth, ymax - half_depth)
+            x_center, y_center = _nearest_valid_from_target(
+                target_x, target_y,
+                xmin, xmax, ymin, ymax,
+                half_width, half_depth, min_separation,
+                placed_objects_info,
+            )
+            if x_center is not None:
                 placed_objects_info.append((x_center, y_center, half_width, half_depth))
-                # Update the position in the original obj_cfg list using its original index.
                 # set_position_orientation() writes the prim origin (~bbox center for
                 # dataset objects), so we lift z by half the bbox height + a small
                 # buffer to keep the bottom on (not inside) the table — otherwise
@@ -317,7 +354,7 @@ def get_non_colliding_positions_for_objects(
                 break
 
         if not placed:
-            og.log.error(f"Failed to place object '{cfg.get('name', 'Unnamed Object')}' after {max_attempts_per_object} attempts. Dropping it from the air.")
+            og.log.error(f"Failed to place object '{cfg.get('name', 'Unnamed Object')}' after {n_target_tries} target tries. Dropping it from the air.")
             x_center = np.random.uniform(xmin + half_width, xmax - half_width)
             y_center = np.random.uniform(ymin + half_depth, ymax - half_depth)
             bbox_h = bbox[2] if len(bbox) >= 3 else 0.1
