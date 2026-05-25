@@ -359,7 +359,7 @@ class RealmEnvironmentBase:
     def check_lift_pour_condition(self, obs):
         # Lifted at least 15 cm — used by pour tasks to ensure the bottle is
         # well clear of the table before the pouring motion is rewarded.
-        return self.check_lift_and_distance_condition(distance_threshold=0.05, lift_threshold=0.9)
+        return self.check_lift_and_distance_condition(distance_threshold=0.05, lift_threshold=0.09)
 
     def check_push(self, obs):
         mo = self.main_objects[0]
