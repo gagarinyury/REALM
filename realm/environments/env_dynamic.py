@@ -718,6 +718,14 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             cfg_robot["robots"][0]["control_freq"] = self.common_freq
             cfg_robot["robots"][0]["controller_config"]["arm_0"]["control_freq"] = self.common_freq
 
+        # Per-task grasping_mode override: pour_proxy benefits from assisted
+        # grasping (magnetic attach between gripper fingers and the bottle)
+        # so policy rollouts aren't dominated by physical grasp failures.
+        # The robot's manipulator class (DROID etc.) already defines the
+        # assisted_grasp_start_points / end_points needed for this mode.
+        if task_cfg.get("task_type") == "pour_proxy":
+            cfg_robot["robots"][0]["grasping_mode"] = "assisted"
+
         cfg.update(cfg_robot)
         self.reset_qpos = reset_joint_pos
 
