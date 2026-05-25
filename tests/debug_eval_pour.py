@@ -190,12 +190,12 @@ def run_pour_debug(perturbation: str = "Default", max_steps: int = 1500, log_dir
     # of this script is to exercise the pipeline, not to solve the task.
     from realm.helpers import flip_pose_pointing_down
     from scipy.spatial.transform import Rotation
-    reach_ee_pos = np.array([0.35, 0.0, 0.15])
+    reach_ee_pos = np.array([0.35, 0.0, 0.1])
     reach_ee_rot = flip_pose_pointing_down(np.array([3.14, 1.57, 0.0]))
     reach_gripper_open = np.array([-1.0])
     reach_ee_action = np.concatenate([reach_ee_pos, reach_ee_rot, reach_gripper_open])
 
-    grasp_ee_pos = np.array([0.47, 0.0, 0.125])
+    grasp_ee_pos = np.array([0.47, 0.0, 0.1])
     grasp_ee_rot = flip_pose_pointing_down(np.array([3.14, 1.57, 0.0]))
     grasp_gripper_open = np.array([-1.0])
     grasp_ee_action = np.concatenate([grasp_ee_pos, grasp_ee_rot, grasp_gripper_open])
