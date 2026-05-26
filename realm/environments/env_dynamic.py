@@ -454,6 +454,11 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         self.main_objects = [self.omnigibson_env.scene.object_registry("name", mo["name"]) for mo in mo_cfgs]
         self.target_objects = [self.omnigibson_env.scene.object_registry("name", to["name"]) for to in to_cfgs]
         self.distractors = [self.omnigibson_env.scene.object_registry("name", dist["name"]) for dist in dist_cfgs]
+        # Foam balls (pour_proxy) persist for the env's lifetime and are never
+        # swapped/removed by perturbations. Capture them once here so success
+        # detection (_foam_balls) doesn't depend on the mutable distractor list,
+        # which V-SC rebuilds and from which foam balls are intentionally absent.
+        self.foam_balls = [d for d in self.distractors if d is not None and "foam_ball" in d.name]
 
         # For pour_proxy: foam_balls were injected into cfg["objects"] above at
         # pre-settle positions, but PhysX's spawn-frame penetration resolution

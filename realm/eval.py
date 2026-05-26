@@ -60,7 +60,37 @@ def _set_gm(name, value):
     gm[name] = value
 
 
+def _patch_raytest_zero_length_guard():
+    """Guard omnigibson's raytest against zero-length rays.
+
+    raytest computes `direction = (end - start) / norm(end - start)`; when start
+    and end coincide this is NaN, which PhysX rejects with
+    "NpSceneQueries multiQuery input check: unitDir is not valid". This happens
+    when assisted-grasp start/end points momentarily meet as the gripper closes
+    on empty air. We wrap raytest to return a no-hit for degenerate rays.
+
+    Applied via monkeypatch (not by editing omnigibson) so it works regardless
+    of whether the in-image omnigibson or a bind-mounted OG-lite is loaded.
+    """
+    from omnigibson.utils import sampling_utils
+    if getattr(sampling_utils.raytest, "_zero_len_guarded", False):
+        return
+    import torch as _th
+    _orig_raytest = sampling_utils.raytest
+
+    def _guarded_raytest(start_point, end_point, only_closest=True, *args, **kwargs):
+        sp = start_point if isinstance(start_point, _th.Tensor) else _th.tensor(start_point)
+        ep = end_point if isinstance(end_point, _th.Tensor) else _th.tensor(end_point)
+        if _th.norm(ep - sp) < 1e-9:
+            return {"hit": False} if only_closest else []
+        return _orig_raytest(start_point, end_point, only_closest=only_closest, *args, **kwargs)
+
+    _guarded_raytest._zero_len_guarded = True
+    sampling_utils.raytest = _guarded_raytest
+
+
 def set_sim_config(rendering_mode=None, robot="DROID", og_lite=False):
+    _patch_raytest_zero_length_guard()
     if robot == "WidowX": # TODO: just read this from the yamls...
         _set_gm("DEFAULT_SIM_STEP_FREQ", 5)
         _set_gm("DEFAULT_RENDERING_FREQ", 5)

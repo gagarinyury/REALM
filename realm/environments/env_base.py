@@ -434,6 +434,13 @@ class RealmEnvironmentBase:
         return int(n_in) >= min_particles
 
     def _foam_balls(self):
+        # Prefer the lifetime-stable list captured at env construction. The
+        # distractor list is mutated by perturbations (e.g. V-SC rebuilds it
+        # and deliberately excludes foam balls), so scanning it would miss them
+        # and break pour_proxy success detection.
+        captured = getattr(self, "foam_balls", None)
+        if captured:
+            return [b for b in captured if b is not None]
         balls = []
         for obj_list in (self.main_objects, self.target_objects, getattr(self, "distractors", [])):
             for obj in obj_list:
