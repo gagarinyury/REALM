@@ -1156,16 +1156,34 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             # uprightness on whatever the perturbation produced.
             for _ in range(20):
                 og.sim.step()
-            if self.is_source_upright():
+            upright = self.is_source_upright()
+            # Also require at least one foam_ball inside the bottle — otherwise
+            # the bottle would be carried empty and the success rubric (which
+            # needs balls to leave the source) is unreachable. Tasks that don't
+            # spawn foam balls trivially pass this gate.
+            balls_in_source = (
+                self._count_balls_inside(self.main_objects[0])
+                if self.main_objects and self._foam_balls()
+                else None
+            )
+            balls_ok = balls_in_source is None or balls_in_source > 0
+            if upright and balls_ok:
                 # Record how many foam_balls are inside the source at episode
                 # start. check_pour_proxy compares to this to require that at
                 # least one ball has actually left the bottle for success.
                 if self.main_objects:
-                    self._initial_balls_in_source = self._count_balls_inside(self.main_objects[0])
+                    self._initial_balls_in_source = (
+                        balls_in_source if balls_in_source is not None
+                        else self._count_balls_inside(self.main_objects[0])
+                    )
                     print(f"[pour_proxy reset] episode starts with {self._initial_balls_in_source} foam_ball(s) inside source")
                 return obs, _
+            if not upright:
+                reason = "bottle not upright"
+            else:
+                reason = f"no foam_balls inside source (got {balls_in_source})"
             print(
-                f"[pour_proxy reset] Bottle not standing upright after attempt "
+                f"[pour_proxy reset] {reason} after attempt "
                 f"{attempt + 1}/{max_settle_attempts} — re-resetting scene "
                 f"(this re-reset does NOT count toward eval repeats)."
             )

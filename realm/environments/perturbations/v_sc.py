@@ -38,7 +38,13 @@ def v_sc(env: "RealmEnvironmentDynamic") -> None:
     # absolute positions are not tracked in init_poses, which would otherwise
     # break replace_obj's pose lookup below.
     scene_names = set(getattr(env, "scene_obj_names", []))
-    num_distractors = sum(1 for c in obj_cfgs[num_mo_to:] if c["name"] not in scene_names)
+    # Foam balls (pour_proxy contents) must be kept inside the bottle — they are
+    # not table distractors and must not be repositioned or replaced.
+    foam_ball_names = {c["name"] for c in obj_cfgs if c.get("name", "").startswith("foam_ball")}
+    num_distractors = sum(
+        1 for c in obj_cfgs[num_mo_to:]
+        if c["name"] not in scene_names and c["name"] not in foam_ball_names
+    )
 
     env.cfg["objects"] = None
     env.cfg["objects"] = get_non_colliding_positions_for_objects(
@@ -51,6 +57,7 @@ def v_sc(env: "RealmEnvironmentDynamic") -> None:
         objects_to_skip=(
             [obj.name for obj in env.target_objects + env.main_objects]
             + list(scene_names)
+            + list(foam_ball_names)
         ),
         main_object_names=[o["name"] for o in obj_cfgs[:num_mo_to]],
         maximum_dim=0.12,
@@ -59,7 +66,7 @@ def v_sc(env: "RealmEnvironmentDynamic") -> None:
     env.distractors = [
         env.omnigibson_env.scene.object_registry("name", dist["name"])
         for dist in env.cfg["objects"][num_mo_to:]
-        if dist["name"] not in scene_names
+        if dist["name"] not in scene_names and dist["name"] not in foam_ball_names
     ]
 
     # TODO: check if this works properly in the edge cases where it should trigger
