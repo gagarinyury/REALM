@@ -207,6 +207,8 @@ def evaluate(
                     on_top = mo.states[og.object_states.OnTop].get_value(target)
                     if inside or on_top:
                         is_placed = True
+                    if getattr(env, "bidirectional", False) and target.states[og.object_states.OnTop].get_value(mo):
+                        is_placed = True
 
                 if not is_placed:
                     drops += 1

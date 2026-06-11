@@ -7,6 +7,7 @@ task:
   reward_config: {}
 
 task_type: "stack"
+bidirectional: true
 instruction: "stack the plates on top of each other"
 instruction_obj_to_replace: "green block"
 instruction_target_to_replace: "yellow block"

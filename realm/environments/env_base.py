@@ -32,7 +32,9 @@ class RealmEnvironmentBase:
         target_objects,
         task_type,
         robot,
-        mo_cfgs
+        mo_cfgs,
+        to_cfgs=None,
+        bidirectional=False,
     ):
         self.main_objects = main_objects
         self.target_objects = target_objects
@@ -40,6 +42,16 @@ class RealmEnvironmentBase:
         self.mo_pos_orig = np.array(mo_cfgs[0]["position"])
         self.mo_rot_orig = np.array(mo_cfgs[0]["orientation"] if "orientation" in mo_cfgs[0] else [0, 0, 0, 1])
         self.mo_bbox_orig = np.array(mo_cfgs[0]["bounding_box"])
+
+        self.bidirectional = bidirectional and to_cfgs is not None and len(to_cfgs) > 0
+        if self.bidirectional:
+            self.to_pos_orig = np.array(to_cfgs[0]["position"])
+            self.to_rot_orig = np.array(to_cfgs[0]["orientation"] if "orientation" in to_cfgs[0] else [0, 0, 0, 1])
+            self.to_bbox_orig = np.array(to_cfgs[0]["bounding_box"])
+        else:
+            self.to_pos_orig = None
+            self.to_rot_orig = None
+            self.to_bbox_orig = None
 
         self.task_type = task_type
         self.robot = robot
@@ -213,13 +225,8 @@ class RealmEnvironmentBase:
             assert 0.0 <= reward <= 1.0
         return reward
 
-    def check_reach_condition(self, obs):
-        mo = self.main_objects[0]
-
-        if self.task_progression in ["open_close_drawer"]:
-            return self.is_touching(obs, mo)
-
-        pos1 = mo.get_position_orientation()[0]
+    def _reach_for_object(self, obs, obj):
+        pos1 = obj.get_position_orientation()[0]
         finger1 = list(self.robot_finger_links)[0]
         pos_finger1 = finger1.get_position_orientation()[0]
         finger2 = list(self.robot_finger_links)[1]
@@ -229,7 +236,18 @@ class RealmEnvironmentBase:
         distance_2 = np.linalg.norm(pos1 - pos_finger2)
 
         dist = 0.1
-        return distance_1 < dist or distance_2 < dist or self.check_touch_condition(obs)
+        is_touching = self.robot.states[og.object_states.Touching].get_value(obj)
+        return distance_1 < dist or distance_2 < dist or is_touching
+
+    def check_reach_condition(self, obs):
+        mo = self.main_objects[0]
+
+        if self.task_progression in ["open_close_drawer"]:
+            return self.is_touching(obs, mo)
+
+        if self.bidirectional and len(self.target_objects) > 0:
+            return self._reach_for_object(obs, mo) or self._reach_for_object(obs, self.target_objects[0])
+        return self._reach_for_object(obs, mo)
 
         # TODO: make the distance computation bbox dependent
         # obj_pos = mo.get_position_orientation()[0]
@@ -253,6 +271,8 @@ class RealmEnvironmentBase:
         # print(finger_distances)
 
     def check_grasp_condition(self, obs):
+        if self.bidirectional and len(self.target_objects) > 0:
+            return self.is_grasping(obs, self.main_objects[0]) or self.is_grasping(obs, self.target_objects[0])
         return self.is_grasping(obs, self.main_objects[0])
 
     def check_touch_condition(self, obs):
@@ -312,13 +332,17 @@ class RealmEnvironmentBase:
 
         return abs(rot_diff) > rot_threshold
 
+    def _object_lifted_and_moved(self, obj, pos_orig, distance_threshold, lift_threshold):
+        pos_curr = obj.get_position_orientation()[0]
+        distance = np.linalg.norm(pos_curr - pos_orig)
+        return pos_curr[2] - pos_orig[2] > lift_threshold and distance > distance_threshold
+
     def check_lift_and_distance_condition(self, distance_threshold=0.05, lift_threshold=0.01):
-        mo = self.main_objects[0]
-        mo_pos_curr = mo.get_position_orientation()[0]
-
-        distance = np.linalg.norm(mo_pos_curr - self.mo_pos_orig)
-
-        return mo_pos_curr[2] - self.mo_pos_orig[2] > lift_threshold and distance > distance_threshold
+        if self._object_lifted_and_moved(self.main_objects[0], self.mo_pos_orig, distance_threshold, lift_threshold):
+            return True
+        if self.bidirectional and len(self.target_objects) > 0 and self.to_pos_orig is not None:
+            return self._object_lifted_and_moved(self.target_objects[0], self.to_pos_orig, distance_threshold, lift_threshold)
+        return False
 
     def check_lift_slight_condition(self, obs):
         return self.check_lift_and_distance_condition()  # lifted at least 1cm and traveled at least 5cm
@@ -356,7 +380,11 @@ class RealmEnvironmentBase:
     def check_place_onto_condition(self, obs):
         mo = self.main_objects[0]
         target = self.target_objects[0]
-        return mo.states[og.object_states.OnTop].get_value(target) and not self.is_grasping(obs, mo)
+        mo_on_target = mo.states[og.object_states.OnTop].get_value(target) and not self.is_grasping(obs, mo)
+        if self.bidirectional:
+            target_on_mo = target.states[og.object_states.OnTop].get_value(mo) and not self.is_grasping(obs, target)
+            return mo_on_target or target_on_mo
+        return mo_on_target
 
     def check_toggled_on_condition(self, obs):
         mo = self.main_objects[0]

@@ -255,7 +255,9 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             target_objects=self.target_objects,
             task_type=self.task_type,
             robot=self.robot,
-            mo_cfgs=mo_cfgs
+            mo_cfgs=mo_cfgs,
+            to_cfgs=to_cfgs,
+            bidirectional=bool(self.cfg.get("bidirectional", False)),
         )
 
     def construct_environment_config(self):
