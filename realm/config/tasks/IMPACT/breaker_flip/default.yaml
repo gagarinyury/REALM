@@ -6,12 +6,12 @@ task:
   termination_config: {}
   reward_config: {}
 
-task_type: "stack"
-bidirectional: true
-instruction: "stack the plates on top of each other"
-instruction_obj_to_replace: "green block"
-instruction_target_to_replace: "yellow block"
-instruction_verb_to_replace: "stack"
+task_type: "breaker_flip"
+bidirectional: false
+instruction: "flip the breaker switch"
+instruction_obj_to_replace: "breaker switch"
+instruction_target_to_replace: ""
+instruction_verb_to_replace: "flip"
 
 supported_scenes:
   IMPACT:
@@ -24,29 +24,42 @@ main_objects:
     - type: "USDObject"
       usd_path: "/app/custom_assets/breaker/breaker_box.usd"
       name: "box"
-      position: [0.05, -0.2, 0.771 ]
+      position: [0.375, 0.0, 0.825 ]
       bounding_box: [ 0.40, 0.61, 0.54 ]
+      scale: [2, 2, 2]
+      orientation: [ 0, 0, -0.7071068, 0.7071068 ]
       fixed_base: True
 
-#main_objects:
-#    - type: "DatasetObject"
-#      name: "plate"
-#      category: "plate"
-#      model: "ivuveo"
-#      rgba: [ 0.1953125, 0.65625, 0.3203125, 1.0 ]
-#      bounding_box: [ 0.27, 0.27, 0.03 ]
-#      position: [0.05, -0.2, 0.771 ]
+target_objects: []
 
-target_objects:
-    - type: "DatasetObject"
-      name: "plate2"
-      category: "plate"
-      model: "luhkiz"
-      bounding_box: [ 0.24, 0.24, 0.03 ]
-      position: [0.05, 0.2, 0.771 ]
+distractors:
+  - type: "PrimitiveObject"
+    name: "debugging_weighted_cube"
+    primitive_type: "Cube"
+    bounding_box: [ 0.03, 0.03, 0.03 ]
+    scale: [ 0.025, 0.025, 0.025 ]
+    position: [ 0.30793, 0.03791, 1.09121 ] #[-0.1, -0.075, 0.771 ]
+    #visual_only: True
 
-distractors: []
-immutables: []
+immutables:
+  - type: "PrimitiveObject"
+    name: "side_profile_0"
+    primitive_type: "Cube"
+    #rgba: [ 0.1953125, 0.65625, 0.3203125, 1.0 ]
+    bounding_box: [ 0.025, 0.025, 0.025 ]
+    scale: [ 0.025, 0.025, 0.75 ]
+    position: [ 0.43, 0.33, 1.0 ] #[-0.1, -0.075, 0.771 ]
+    visual_only: True
+  - type: "PrimitiveObject"
+    name: "side_profile_1"
+    primitive_type: "Cube"
+    #rgba: [ 0.1953125, 0.65625, 0.3203125, 1.0 ]
+    bounding_box: [ 0.025, 0.025, 0.025 ]
+    scale: [ 0.025, 0.025, 0.75 ]
+    position: [ 0.43, -0.33, 1.0 ] #[-0.1, -0.075, 0.771 ]
+    visual_only: True
+
+
 cached_semantic_perturbations:
   "S-LANG":
     - ""

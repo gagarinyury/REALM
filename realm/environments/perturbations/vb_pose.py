@@ -24,6 +24,22 @@ def vb_pose(env: "RealmEnvironmentDynamic") -> None:
                 og.sim.stop()
                 obj.set_position_orientation(init_pos)
                 og.sim.play()
+    elif env.task_type == "breaker_flip":
+        # Edge case: the breaker is wall-mounted, so we only jitter it along the
+        # Y and Z axes, within 0.2 m of its spawn pose, and keep its orientation.
+        # We ALWAYS base the new pose on the YAML default (a stable reference that
+        # is never overwritten) and copy it, so repeated resets do not stack and
+        # push the box out of the robot's reach.
+        delta_y = np.random.uniform(-0.2, 0.2)
+        delta_z = np.random.uniform(-0.2, 0.2)
+        obj = env.main_objects[0]
+        new_pos = env.mo_pos_yaml_default.copy()
+        new_pos[1] += delta_y
+        new_pos[2] += delta_z
+        og.sim.stop()
+        obj.set_position_orientation(position=new_pos, orientation=env.mo_rot_yaml_default)
+        og.sim.play()
+        env.reset_joints()
     else:
         for scene_obj in env.main_objects + env.distractors + env.target_objects:
             for cfg in env.cfg["objects"]:

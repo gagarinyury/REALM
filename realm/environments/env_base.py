@@ -87,7 +87,8 @@ class RealmEnvironmentBase:
             "MOVE_JOINT_LARGE": self.check_moved_mo_joint_large,
             "MOVE_JOINT_FULL": self.check_moved_mo_joint_full,
             "TOGGLED_ON": self.check_toggled_on_condition,
-            "POURED": self.check_pour # TODO: pouring
+            "POURED": self.check_pour, # TODO: pouring
+            "FLIPPED": self.check_flipped,
         }
 
     def  reset_joints(self, target_drawer_loc: str = "top"):
@@ -115,6 +116,27 @@ class RealmEnvironmentBase:
                 j.keep_still()
             for _ in range(10):
                 og.sim.step()
+
+        elif self.task_type == "breaker_flip":
+            breaker = self.main_objects[0]
+            revolute_joints = [j for j in breaker.joints.values()
+                               if j.joint_type == JointType.JOINT_REVOLUTE]
+            assert len(revolute_joints) == 1, (
+                f"breaker_flip expects exactly one revolute joint, found "
+                f"{len(revolute_joints)}: {[j.joint_name for j in breaker.joints.values()]}"
+            )
+            self.mo_joint = revolute_joints[0]
+
+            # NOTE: unlike the drawer task we deliberately do NOT override the
+            # joint gains here -- the breaker asset authors its own drive/friction
+            # so the switch holds in place until pushed. Let it settle at that
+            # authored rest pose, then record the starting angle.
+            for _ in range(30):
+                og.sim.step()
+            self.mo_joint.keep_still()
+            for _ in range(10):
+                og.sim.step()
+            self.init_joint_angle = float(self.mo_joint.get_state()[0][0])
 
         else:
             self.mo_joint = None
@@ -385,6 +407,15 @@ class RealmEnvironmentBase:
             target_on_mo = target.states[og.object_states.OnTop].get_value(mo) and not self.is_grasping(obs, target)
             return mo_on_target or target_on_mo
         return mo_on_target
+
+    def check_flipped(self, obs, threshold_degrees=33):
+        # Success once the breaker's single revolute joint has rotated at least
+        # `threshold_degrees` from its starting position (in either direction).
+        # Joint state is in radians, so convert the threshold.
+        assert self.mo_joint is not None
+        current_angle = float(self.mo_joint.get_state()[0][0])
+        angle_delta = abs(current_angle - self.init_joint_angle)
+        return angle_delta >= np.radians(threshold_degrees)
 
     def check_toggled_on_condition(self, obs):
         mo = self.main_objects[0]

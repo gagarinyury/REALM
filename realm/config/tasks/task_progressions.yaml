@@ -46,3 +46,7 @@ turn_faucet:
   - MOVE_JOINT_SMALL
   - MOVE_JOINT_LARGE
   - MOVE_JOINT_FULL
+breaker_flip:
+  - REACH
+  - TOUCH
+  - FLIPPED

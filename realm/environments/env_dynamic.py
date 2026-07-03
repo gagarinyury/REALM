@@ -46,7 +46,7 @@ from scipy.spatial.transform import Rotation as R
 
 
 MISSING_PERTURBATIONS = ["V-OBJ", "VB-ISC", "VS-PROP", "SB-ADV", "SB-SMO"]
-SUPPORTED_TASK_TYPES = ["put", "pick", "rotate", "push", "stack", "open_drawer", "close_drawer"]
+SUPPORTED_TASK_TYPES = ["put", "pick", "rotate", "push", "stack", "open_drawer", "close_drawer", "breaker_flip"]
 SKILL_COMPATIBILITY_MATRIX = {
     "put": ["pick", "rotate", "stack"],
     "push": [],  # ["put", "pick", "rotate", "stack"],
@@ -217,6 +217,15 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         self.mo_pos_orig = np.array(mo_cfgs[0]["position"])
         self.mo_rot_orig = np.array(mo_cfgs[0]["orientation"] if "orientation" in mo_cfgs[0] else [0, 0, 0, 1])
         self.mo_bbox_orig = np.array(mo_cfgs[0]["bounding_box"])
+
+        # Stable YAML-default pose for the main object. Unlike mo_pos_orig/mo_rot_orig
+        # (which get overwritten to the current pose during warmup), these are captured
+        # once from the config and never mutated, so pose perturbations can always
+        # reference the intended spawn pose and never stack across resets.
+        self.mo_pos_yaml_default = np.array(mo_cfgs[0]["position"], dtype=float)
+        self.mo_rot_yaml_default = np.array(
+            mo_cfgs[0]["orientation"] if "orientation" in mo_cfgs[0] else [0, 0, 0, 1], dtype=float
+        )
 
         self.cfg = copy.deepcopy(cfg)
         self.task_type = self.cfg["task_type"]
