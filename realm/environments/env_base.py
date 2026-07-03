@@ -127,10 +127,20 @@ class RealmEnvironmentBase:
             )
             self.mo_joint = revolute_joints[0]
 
-            # NOTE: unlike the drawer task we deliberately do NOT override the
-            # joint gains here -- the breaker asset authors its own drive/friction
-            # so the switch holds in place until pushed. Let it settle at that
-            # authored rest pose, then record the starting angle.
+            # OmniGibson infers a joint's control type from its gains at load
+            # (joint_prim.py): a nonzero drive stiffness => POSITION control, so OG
+            # holds the joint rigid every step (it moves in raw Isaac Sim but is
+            # frozen in OG). Zero the gains so the joint is no longer position/
+            # velocity driven -- it becomes free (EFFORT control) and is governed
+            # purely by the asset's authored joint friction/armature, i.e. it holds
+            # in place until enough torque is applied to flip it. Raise the max
+            # effort so the joint isn't effort-limited.
+            self.mo_joint._articulation_view.set_max_efforts(
+                torch.tensor([[1.0e8]], dtype=torch.float32), joint_indices=self.mo_joint.dof_indices)
+            self.mo_joint._articulation_view.set_gains(
+                kps=torch.tensor([[0.0]]), kds=torch.tensor([[0.0]]), joint_indices=self.mo_joint.dof_indices)
+
+            # Let it settle at the authored rest pose, then record the start angle.
             for _ in range(30):
                 og.sim.step()
             self.mo_joint.keep_still()

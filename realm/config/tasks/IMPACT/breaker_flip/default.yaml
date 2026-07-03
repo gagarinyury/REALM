@@ -32,31 +32,22 @@ main_objects:
 
 target_objects: []
 
-distractors:
-  - type: "PrimitiveObject"
-    name: "debugging_weighted_cube"
-    primitive_type: "Cube"
-    bounding_box: [ 0.03, 0.03, 0.03 ]
-    scale: [ 0.025, 0.025, 0.025 ]
-    position: [ 0.30793, 0.03791, 1.09121 ] #[-0.1, -0.075, 0.771 ]
-    #visual_only: True
+distractors: []
 
 immutables:
   - type: "PrimitiveObject"
     name: "side_profile_0"
     primitive_type: "Cube"
-    #rgba: [ 0.1953125, 0.65625, 0.3203125, 1.0 ]
     bounding_box: [ 0.025, 0.025, 0.025 ]
     scale: [ 0.025, 0.025, 0.75 ]
-    position: [ 0.43, 0.33, 1.0 ] #[-0.1, -0.075, 0.771 ]
+    position: [ 0.43, 0.33, 1.0 ]
     visual_only: True
   - type: "PrimitiveObject"
     name: "side_profile_1"
     primitive_type: "Cube"
-    #rgba: [ 0.1953125, 0.65625, 0.3203125, 1.0 ]
     bounding_box: [ 0.025, 0.025, 0.025 ]
     scale: [ 0.025, 0.025, 0.75 ]
-    position: [ 0.43, -0.33, 1.0 ] #[-0.1, -0.075, 0.771 ]
+    position: [ 0.43, -0.33, 1.0 ]
     visual_only: True
 
 
