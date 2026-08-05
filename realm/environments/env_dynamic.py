@@ -161,7 +161,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         robot: str = "DROID"
     ) -> None:
         assert not (multi_view and no_rendering), f"Multi-view rendering was enabled during no_rendering mode. Either one is likely a mistake."
-        self.task_cfg_path = "/".join(task_cfg_path.split("/")[-3:])
+        self.task_cfg_path = "/".join(task_cfg_path.replace("\\", "/").split("/")[-3:])
         self.use_droid_with_base = True if self.task_cfg_path.split("/")[0] == "REALM_DROID10" else False # TODO: infer properly from the task/scene config yaml
         self.robot_name = robot
         self.multi_view = multi_view
@@ -441,22 +441,27 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         friction = np.array(self.cfg["robots"][0]["friction"])
         armature = np.array(self.cfg["robots"][0]["armature"])
 
-        joint_names = self.robot.arm_joint_names
-        for idx in range(7):
-            prim_path = f"{self.robot.prim_path}/panda_link{idx}/{joint_names['0'][idx]}"
-            joint_prim = lazy.omni.isaac.core.utils.prims.get_prim_at_path(prim_path)
-            assert joint_prim.IsValid()
-            joint_prim.GetAttribute("physxJoint:jointFriction").Set(friction[idx])
-            joint_prim.GetAttribute("physxJoint:armature").Set(armature[idx])
+        # NOTE: patched -- current OmniGibson requires all direct USD prim mutations to go
+        # through og.sim.editing_usd() for proper USD-Fabric synchronization (a guard that did
+        # not exist in the OmniGibson 1.1.1 version REALM originally targeted). Wrapping the
+        # entire method body since it performs multiple direct .Set() calls below.
+        with og.sim.editing_usd():
+            joint_names = self.robot.arm_joint_names
+            for idx in range(7):
+                prim_path = f"{self.robot.prim_path}/panda_link{idx}/{joint_names['0'][idx]}"
+                joint_prim = lazy.omni.isaac.core.utils.prims.get_prim_at_path(prim_path)
+                assert joint_prim.IsValid()
+                joint_prim.GetAttribute("physxJoint:jointFriction").Set(friction[idx])
+                joint_prim.GetAttribute("physxJoint:armature").Set(armature[idx])
 
-        # Fix triangle mesh collision approximation for dynamic bodies
-        for link_name, link in self.robot.links.items():
-            for collision_mesh in link.collision_meshes.values():
-                prim = lazy.omni.isaac.core.utils.prims.get_prim_at_path(collision_mesh.prim_path)
-                if prim.IsValid() and prim.HasAttribute("physxMeshCollision:approximation"):
-                    approx = prim.GetAttribute("physxMeshCollision:approximation").Get()
-                    if approx in ["none", "meshSimplification"]:
-                        prim.GetAttribute("physxMeshCollision:approximation").Set("convexHull")
+            # Fix triangle mesh collision approximation for dynamic bodies
+            for link_name, link in self.robot.links.items():
+                for collision_mesh in link.collision_meshes.values():
+                    prim = lazy.omni.isaac.core.utils.prims.get_prim_at_path(collision_mesh.prim_path)
+                    if prim.IsValid() and prim.HasAttribute("physxMeshCollision:approximation"):
+                        approx = prim.GetAttribute("physxMeshCollision:approximation").Get()
+                        if approx in ["none", "meshSimplification"]:
+                            prim.GetAttribute("physxMeshCollision:approximation").Set("convexHull")
 
     def apply_scene_fixes_from_cfg(self):
         spawn_cfg = yaml.load(open(f"{self.config_path}/scenes/scenes.yaml", "r"), Loader=yaml.FullLoader)
@@ -584,7 +589,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
         for model_path in get_all_object_models():
             if os.path.exists(model_path):
-                category = model_path.split("/")[-2]
+                category = model_path.replace("\\", "/").split("/")[-2]
                 if category in whitelisted_categories:
                     available_object_paths.append(model_path)
 
@@ -600,8 +605,8 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         sampled_indices = np.random.choice(len(available_object_paths), size=num_objects, replace=False)
         sampled_objects = []
         for i in sampled_indices:
-            category = available_object_paths[i].split("/")[-2]
-            model_id = available_object_paths[i].split("/")[-1]
+            category = available_object_paths[i].replace("\\", "/").split("/")[-2]
+            model_id = available_object_paths[i].replace("\\", "/").split("/")[-1]
             name = f"distractor_{i}"
             obj_cfg = {
                 "type": "DatasetObject",

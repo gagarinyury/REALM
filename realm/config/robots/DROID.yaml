@@ -1,6 +1,26 @@
 robots:
+  # NOTE: `type` patched for native-Windows execution. REALM's original custom
+  # "DROID" robot Python class (realm/robots/droid_arm.py) was registered via the
+  # old OmniGibson class-registry mechanism, which no longer exists in the current
+  # OmniGibson -- robots are now purely data-driven, loaded from dataset YAML/USD
+  # by `model` string (see REGISTERED_ROBOTS in omnigibson/robots/__init__.py).
+  # The dataset ships a native "franka" model (the same physical Franka Panda arm
+  # DROID is built on), so we point at that instead of authoring a full USD asset
+  # for REALM's custom DROID gripper/camera mount. `name` stays "DROID" so the
+  # rest of REALM's code (which branches on `if "DROID" in self.robot_name`)
+  # keeps using its DROID-specific task/perturbation logic; only the physical
+  # robot asset changes.
+  # CAVEAT for the thesis: the pi0_fast_droid checkpoint was trained on the DROID
+  # platform's specific gripper/camera geometry; using the stock Franka model here
+  # is a documented approximation, not an exact reproduction.
   - name: "DROID"
-    type: "DROID"
+    type: "franka"
+    # NOTE: added -- native "franka" has 9 total DOF (7 arm + 2 standard parallel-jaw
+    # gripper fingers), vs. 11 for REALM's original custom DROID gripper (7 arm + 4).
+    # REALM's env_dynamic.py sizes the reset_joint_pos array from this "dof" key
+    # (falling back to a hardcoded DROID_DEFAULT_DOF=11 if absent), which otherwise
+    # mismatches franka's actual joint count.
+    dof: 9
     obs_modalities: ["rgb", "proprio"]
     proprio_obs: ["joint_qpos"]
     control_freq: 15
@@ -32,7 +52,14 @@ robots:
     sensor_config:
       VisionSensor:
         sensor_kwargs:
-          image_height: 720
-          image_width: 1280
+          # NOTE: patched -- reduced from REALM's 720x1280 (matching the #243/#432 fallback
+          # already noted by REALM's own authors in camera_config.yaml) to shrink Isaac Sim's
+          # RTX-renderer GPU footprint (framebuffers/denoiser buffers per camera). Needed to
+          # share a single 16GB GPU with the pi0-fast/JAX policy server (see thesis Methodology
+          # -- both processes run on native Windows / WSL2 on the same win2 GPU). pi0-fast
+          # resizes observations internally regardless of raw render resolution, so this does
+          # not change what the policy actually sees.
+          image_height: 243
+          image_width: 432
           focal_length: 2.8
 

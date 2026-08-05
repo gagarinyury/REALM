@@ -4,8 +4,11 @@ external_sensors:
     relative_prim_path: "/external_sensor0"
     modalities: ["rgb"]
     sensor_kwargs:
-      image_height: 720 #243
-      image_width: 1280 #432
+      # NOTE: patched -- switched to REALM's own commented-out lower-res fallback (243/432)
+      # to shrink Isaac Sim's RTX-renderer GPU footprint; needed to share the single 16GB GPU
+      # with the pi0-fast/JAX policy server (see DROID.yaml, thesis Methodology).
+      image_height: 243 #720
+      image_width: 432 #1280
       focal_length: 9.825
     pose_frame: "parent"
   - name: "external_sensor1"
@@ -13,8 +16,8 @@ external_sensors:
     relative_prim_path: "/external_sensor1"
     modalities: ["rgb"]
     sensor_kwargs:
-      image_height: 720 #243
-      image_width: 1280 #432
+      image_height: 243 #720
+      image_width: 432 #1280
       focal_length: 9.825
     pose_frame: "parent"
 # TODO: use a flag

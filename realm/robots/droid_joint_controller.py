@@ -9,6 +9,7 @@ from omnigibson.controllers.controller_base import (
     ManipulationController,
 )
 from omnigibson.utils.ui_utils import create_module_logger
+from omnigibson.utils.usd_utils import ControllableObjectViewAPI
 import omnigibson as og  # For og.sim.device
 from omnigibson.macros import gm
 #import pinocchio as pin
@@ -18,6 +19,12 @@ import os
 
 # Create module logger
 log = create_module_logger(module_name=__name__)
+
+# NOTE: patched for native-Windows execution against a current OmniGibson (see PLAN.md /
+# thesis Methodology for the full rationale). Verified against franka's own model definition
+# file (omnigibson-robot-assets/models/franka/franka.yaml, end_effectors.gripper.eef_link_names)
+# -- not guessed. Only correct for the default "gripper" end-effector variant used here.
+EEF_LINK_NAME = "eef_link"
 
 
 class IndividualJointPDController(LocomotionController, ManipulationController, GripperController):
@@ -76,7 +83,11 @@ class IndividualJointPDController(LocomotionController, ManipulationController, 
         self.time_tracker = -1 # we update at the very beginning of compute_control, so this is 0 when controller is queried for the very first time
         self.cached_torque = None
 
-    def _update_goal(self, command, control_dict):
+    def _update_goal(self, controller_idx, command):
+        # NOTE: patched signature (controller_idx, command) instead of (command, control_dict).
+        # `current_joint_pos` was fetched in the original but never actually used below (dead
+        # code in the upstream REALM implementation) -- kept for fidelity to the original
+        # structure, now sourced from ControllableObjectViewAPI instead of control_dict.
         target_joint_pos = command.to(og.sim.device)
 
         target_joint_pos = target_joint_pos.clip(
@@ -84,65 +95,101 @@ class IndividualJointPDController(LocomotionController, ManipulationController, 
             self._control_limits[ControlType.get_type("position")][1][self.dof_idx],
         )
 
-        current_joint_pos = control_dict["joint_position"][self.dof_idx].to(og.sim.device)
+        prim_path = self._articulation_root_paths[controller_idx]
+        # NOTE: ControllableObjectViewAPI may return numpy arrays depending on the active compute
+        # backend; wrap with th.as_tensor() before any torch-only ops (.to(), indexing on a th
+        # tensor still works on numpy arrays via __getitem__, but .to() does not).
+        current_joint_pos = th.as_tensor(ControllableObjectViewAPI.get_joint_positions(prim_path))[
+            self.dof_idx
+        ].to(og.sim.device)
         target_joint_vel = th.zeros_like(target_joint_pos)
 
         return dict(target_joint_pos=target_joint_pos, target_joint_vel=target_joint_vel)
 
-    def compute_control(self, goal_dict, control_dict):
+    def compute_control(self, goals):
+        """
+        NOTE: patched -- `compute_control(self, goal_dict, control_dict)` -> `compute_control(self,
+        goals)`. The controller framework now always calls this batched over this group's N active
+        members (here N=1, but the array shapes below are still (N, ...) since that's what the
+        framework passes/expects back); current robot state comes from `ControllableObjectViewAPI`
+        via `self.routing_path`/`self.view_row_indices` instead of a `control_dict` parameter.
+        The actual impedance-control math (Kp = J^T Kx J + Kq, etc.) is unchanged from REALM's
+        original implementation, just looped per batch row instead of operating on a single
+        (non-batched) set of tensors.
+        """
         self.time_tracker += 1
-        # if self.time_tracker % gm.DEFAULT_SIM_STEP_FREQ != 0:
-        #     return self.cached_torque
 
-        current_joint_pos = control_dict["joint_position"][self.dof_idx].to(og.sim.device)
-        current_joint_vel = control_dict["joint_velocity"][self.dof_idx].to(og.sim.device)
-        # Assuming arm name is 0 and there is only one arm
-        jacobian = control_dict["eef_0_jacobian_relative"].to(og.sim.device)[:, :7]
+        rows = self.view_row_indices
+        routing_path = self.routing_path
 
-        assert jacobian.shape == (6, 7)
+        joint_pos_desired = goals["target_joint_pos"].to(og.sim.device)  # (N, 7)
+        joint_vel_desired = goals["target_joint_vel"].to(og.sim.device)  # (N, 7)
 
-        joint_pos_desired = goal_dict["target_joint_pos"].to(og.sim.device)
-        joint_vel_desired = goal_dict["target_joint_vel"].to(og.sim.device)
+        all_joint_positions = th.as_tensor(ControllableObjectViewAPI.get_all_joint_positions(routing_path))[
+            rows, :
+        ]
+        all_joint_velocities = th.as_tensor(
+            ControllableObjectViewAPI.get_all_joint_velocities(routing_path, estimate=True)
+        )[rows, :]
+        current_joint_pos = all_joint_positions[:, self.dof_idx].to(og.sim.device)  # (N, 7)
+        current_joint_vel = all_joint_velocities[:, self.dof_idx].to(og.sim.device)  # (N, 7)
 
-        Kp = jacobian.T @ self.Kx @ jacobian + self.Kq
-        Kd = jacobian.T @ self.Kxd @ jacobian + self.Kqd
+        # Batched relative Jacobians for ALL links of ALL group members: (N_view, n_links, 6, n_dof_total).
+        all_jac = th.as_tensor(ControllableObjectViewAPI.get_all_relative_jacobians(routing_path))
+        eef_link_idx = ControllableObjectViewAPI.get_link_index(routing_path, EEF_LINK_NAME)
+        jac_row = eef_link_idx - 1  # Jacobian excludes root body (index 0), per ik_controller.py/osc_controller.py.
+        # Select this group's rows, the eef link's row, and this controller's dof columns -> (N, 6, 7).
+        jacobian_batch = all_jac[rows, jac_row][:, :, self.dof_idx].to(og.sim.device)
 
-        u_feedback = Kp @ (joint_pos_desired - current_joint_pos) + Kd @ (joint_vel_desired - current_joint_vel)
-        u_feedforward = th.zeros_like(u_feedback)
-        u = u_feedback + self._to_tensor(u_feedforward[:7]).to(og.sim.device)
+        u = th.zeros_like(current_joint_pos)
+        for n in range(jacobian_batch.shape[0]):
+            jacobian = jacobian_batch[n]
+            assert jacobian.shape == (6, 7)
 
-        # # Add Coriolis / centrifugal compensation
+            Kp = jacobian.T @ self.Kx @ jacobian + self.Kq
+            Kd = jacobian.T @ self.Kxd @ jacobian + self.Kqd
+
+            u_feedback = Kp @ (joint_pos_desired[n] - current_joint_pos[n]) + Kd @ (
+                joint_vel_desired[n] - current_joint_vel[n]
+            )
+            u[n] = u_feedback
+
+        # Add Coriolis / centrifugal compensation
         if self._use_cc_compensation:
-            u += control_dict["cc_force"][self.dof_idx].to(og.sim.device)
+            all_cc = th.as_tensor(
+                ControllableObjectViewAPI.get_all_coriolis_and_centrifugal_compensation_forces(routing_path)
+            )[rows, :]
+            u = u + all_cc[:, self.dof_idx].to(og.sim.device)
 
         if self.min_effort is not None and self.max_effort is not None:
-            assert u.shape == self.max_effort.shape == self.min_effort.shape
-            u = u.clip(
-                self.min_effort,
-                self.max_effort,
-            )
+            u = u.clip(self.min_effort, self.max_effort)
 
         return u
 
-    def clip_control(self, control):
-        clipped_control = control.clip(
-            self._control_limits[self.control_type][0][self.dof_idx],
-            self._control_limits[self.control_type][1][self.dof_idx],
-        )
+    # NOTE: patched -- removed the custom clip_control() override entirely. REALM's original
+    # implementation was written for the pre-refactor single-instance (non-batched) control
+    # convention and crashed under the current batched (N, control_dim) shape. It was also
+    # functionally a no-op beyond clipping: `idx = [True] * self.control_dim` selects every
+    # element unconditionally, so `control_copy[idx] = clipped_control[idx]` always reduces to
+    # `return clipped_control`. BaseController.clip_control (controller_base.py) already
+    # implements exactly this -- batched, using precomputed self._clip_lo/self._clip_hi -- and
+    # its POSITION-only "undo clip for unlimited joints" branch never triggers here since this
+    # controller's control_type is EFFORT. So inheriting it is behaviorally equivalent, just
+    # correctly batched.
 
-        idx = [True] * self.control_dim
-
-        control_copy = control.clone()
-        control_copy[idx] = clipped_control[idx]
-        return control_copy
-
-    def compute_no_op_goal(self, control_dict):
-        target_joint_pos = control_dict["joint_position"][self.dof_idx].to(og.sim.device)
+    def compute_no_op_goal(self, controller_idx):
+        # NOTE: patched -- was compute_no_op_goal(self, control_dict).
+        prim_path = self._articulation_root_paths[controller_idx]
+        target_joint_pos = th.as_tensor(ControllableObjectViewAPI.get_joint_positions(prim_path))[
+            self.dof_idx
+        ].to(og.sim.device)
         target_joint_vel = th.zeros_like(target_joint_pos)
 
         return dict(target_joint_pos=target_joint_pos, target_joint_vel=target_joint_vel)
 
-    def _compute_no_op_action(self, control_dict):
+    def _compute_no_op_action(self, controller_idx):
+        # NOTE: patched signature -- was _compute_no_op_action(self, control_dict); control_dict
+        # was never used here.
         return th.zeros(self.command_dim, device=og.sim.device)
 
     def _get_goal_shapes(self):
@@ -165,7 +212,9 @@ class IndividualJointPDController(LocomotionController, ManipulationController, 
         else:
             raise ValueError(f"Gain tensor must be 1D or 2D, but got {gain.dim()}D.")
 
-    def is_grasping(self):
+    def is_grasping(self, controller_idx=0):
+        # NOTE: patched signature -- added controller_idx=0 (base class now always calls with an
+        # index); behavior unchanged (this controller never reports a grasp state).
         return IsGraspingState.UNKNOWN
 
     @property

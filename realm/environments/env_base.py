@@ -8,7 +8,7 @@ from realm.robots.droid_gripper_controller import MultiFingerGripperController a
 from realm.robots.custom_joint_controller import IndividualJointPDController
 from realm.robots.droid_ee_controller import DroidEndEffectorController
 import omnigibson as og
-from omnigibson.object_states.contact_bodies import ContactBodies
+from omnigibson.utils.usd_utils import RigidContactAPI
 from omnigibson.controllers import REGISTERED_CONTROLLERS
 from omnigibson.object_states.open_state import _get_relevant_joints
 from omnigibson.utils.object_utils import compute_base_aligned_bboxes, compute_bbox_offset
@@ -135,32 +135,31 @@ class RealmEnvironmentBase:
         # We use prefixes to catch links and geoms belonging to these objects
         ignore_obj_roots = [obj.prim_path for obj in self.main_objects + self.target_objects]
 
+        # NOTE: patched for newer OmniGibson -- RigidPrim.contact_list() (a raw per-contact
+        # impulse report API) was removed upstream. Reimplemented using
+        # RigidContactAPI.get_contact_pairs, the same aggregated boolean contact-matrix API used
+        # elsewhere in this file (see is_grasping above). This API only reports whether two
+        # bodies are in contact at all -- no per-contact impulse magnitude is exposed anymore --
+        # so the original impulse-threshold filtering (dropping contacts below a 1e-3 N*s
+        # impulse) can no longer be replicated as-is. OmniGibson's internal contact-matrix
+        # aggregation (see RigidContactAPI class docstring) already approximates
+        # negligible/resting-contact filtering via net-contact-force and position-change
+        # heuristics, and the adjacent-link + ignored-object filtering below still applies.
+        # Documented as a methodology caveat (thesis Methodology) since it is a real, if minor,
+        # behavioral difference from REALM's original collision-detection granularity.
+        scene_idx = self.robot.scene.idx
         for link in robot_links:
             # Skip root link (usually touching mount/floor)
             if link.name == self.robot.root_link_name:
                 continue
 
-            contacts = link.contact_list()
-            for contact in contacts:
-                # Filter by impulse if available (ignore resting/negligible contacts)
-                if hasattr(contact, "impulse"):
-                    impulse_val = contact.impulse
-                    # Handle structured array if necessary (based on error message)
-                    if impulse_val.dtype.names is not None:
-                         impulse_vec = np.array([impulse_val['x'], impulse_val['y'], impulse_val['z']])
-                    else:
-                         impulse_vec = impulse_val
-                    
-                    if np.linalg.norm(impulse_vec) < 1e-3:
-                        continue
-                else:
-                    continue
-
-                if contact.body0 == link.prim_path:
-                    other_path = contact.body1
-                else:
-                    other_path = contact.body0
-
+            contact_pairs = RigidContactAPI.get_contact_pairs(
+                scene_idx=scene_idx,
+                query_set=[link],
+                with_set=None,
+                current_only=True,
+            )
+            for _, other_path in contact_pairs:
                 # Check if other_path belongs to the robot
                 is_robot = other_path in robot_link_paths or other_path.startswith(robot_prim_path)
 
@@ -186,8 +185,21 @@ class RealmEnvironmentBase:
     def is_grasping(self, obs, candidate_obj):
         finger_joints = obs[self.robot.name]['proprio'][7:9].cpu().numpy()
         is_either_finger_closing = (0.45 - finger_joints[0] > 1e-3 or 0.45 - finger_joints[1] > 1e-3)
-        is_both_fingers_touching_obj = len(
-            candidate_obj.states[ContactBodies].get_value().intersection(self.robot_finger_links)) == 2
+        # NOTE: patched for newer OmniGibson (ContactBodies object state was removed upstream;
+        # reimplemented using RigidContactAPI.is_in_contact, the same low-level API that the
+        # current Touching object state uses internally).
+        n_fingers_touching = sum(
+            1
+            for finger in self.robot_finger_links
+            if RigidContactAPI.is_in_contact(
+                scene_idx=self.robot.scene.idx,
+                query_set=[finger],
+                with_set=[candidate_obj],
+                ignore_set=None,
+                current_only=True,
+            )
+        )
+        is_both_fingers_touching_obj = n_fingers_touching == 2
         is_robot_touching_obj = self.is_touching(obs, candidate_obj)
 
         if is_both_fingers_touching_obj and is_robot_touching_obj and is_either_finger_closing:

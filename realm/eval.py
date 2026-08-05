@@ -11,6 +11,17 @@ from scipy.spatial.transform import Rotation as Rot
 import omnigibson as og
 from omnigibson.macros import gm
 
+# NOTE: patched for native-Windows execution. REALM's custom controllers (droid_joint_controller.py,
+# droid_gripper_controller.py) were written directly against torch tensors (th.nn.Parameter gains,
+# .to(og.sim.device) placement), matching OmniGibson's original (pre-refactor) single-backend design.
+# Current OmniGibson supports a runtime-selectable numpy/torch "compute backend" (see
+# omnigibson/utils/backend_utils.py) and now DEFAULTS to numpy (gm.USE_NUMPY_CONTROLLER_BACKEND=True),
+# which breaks our torch-based controller math (e.g. framework-internal cb.copy() calls arr.copy(),
+# valid for numpy but not torch.Tensor). Forcing the torch backend here restores the single-backend
+# behavior our ported controllers assume, verified by reading simulator.py's create_app(), which reads
+# this macro exactly once (before any sim/app object is constructed) to select the active backend.
+gm.USE_NUMPY_CONTROLLER_BACKEND = False
+
 from realm.environments.env_dynamic import RealmEnvironmentDynamic
 from realm.inference import InferenceClient, extract_from_obs
 from realm.realm_logging import VideoRecorder, save_results, append_trajectory, append_video
@@ -85,7 +96,7 @@ def evaluate(
         model_type="pi0_FAST",
         port=8000,
         host="127.0.0.1",
-        log_dir="/app/logs",
+        log_dir=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs"),
         resume=False,
         multi_view=False,
         no_record=False,
@@ -119,13 +130,19 @@ def evaluate(
     og.log.info(f"DEBUG: Client connected: {time.perf_counter() - start:.4f}s")
 
     env = RealmEnvironmentDynamic(
-        config_path="/app/realm/config",
+        # NOTE: patched for native (non-Docker) execution -- originally hardcoded to
+        # "/app/realm/config", the path REALM's own Dockerfile mounts the repo at.
+        # Made portable by resolving relative to this file's own location instead.
+        config_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "config"),
         task_cfg_path=task_cfg_path,
         perturbations=perturbations,
         multi_view=multi_view,
         no_rendering=no_render,
         rendering_mode=rendering_mode,
-        robot=robot
+        robot=robot,
+        # NOTE: patched -- default rendering_frequency (unset -> config file default)
+        # is below the 60 FPS OmniGibson requires for isosurface HQ rendering.
+        common_freq=60,
     )
     og.log.info(f"DEBUG: Env created: {time.perf_counter() - start:.4f}s")
 

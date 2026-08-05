@@ -12,7 +12,7 @@ from omnigibson.controllers.controller_base import (
 from omnigibson.utils.ui_utils import create_module_logger
 import omnigibson as og  # For og.sim.device
 from omnigibson.macros import gm
-from omnigibson.utils.control_utils import orientation_error
+from omnigibson.utils.transform_utils import orientation_error
 import omnigibson.utils.transform_utils as T
 import numpy as np
 from realm.helpers import add_poses, pose_diff

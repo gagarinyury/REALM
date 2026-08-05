@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 from typing import TYPE_CHECKING
 
+import omnigibson as og
 import omnigibson.lazy as lazy
 
 if TYPE_CHECKING:
@@ -34,11 +35,14 @@ def v_light(env: "RealmEnvironmentDynamic", intensity=None) -> None:
     color = np.clip(color, 0, 255).astype(float) / 255.0
 
     world_path = "/World/scene_0" # TODO: is this always the case? what about vectorized envs
-    for light in all_lights:
-        light_prim_path = world_path + light._relative_prim_path + "/light_0" # TODO: ^^^
-        light_prim = lazy.omni.isaac.core.utils.prims.get_prim_at_path(light_prim_path)
-        if light_prim is None or not light_prim.IsValid(): # the recursive search also takes links that do not contain the light object, these are skipped here
-            continue
+    # NOTE: patched -- wrapped in og.sim.editing_usd(), required by current OmniGibson for any
+    # direct USD prim mutation (see env_dynamic.py update_robot_physics() for the same fix).
+    with og.sim.editing_usd():
+        for light in all_lights:
+            light_prim_path = world_path + light._relative_prim_path + "/light_0" # TODO: ^^^
+            light_prim = lazy.omni.isaac.core.utils.prims.get_prim_at_path(light_prim_path)
+            if light_prim is None or not light_prim.IsValid(): # the recursive search also takes links that do not contain the light object, these are skipped here
+                continue
 
-        light_prim.GetAttribute("inputs:intensity").Set(intensity)
-        light_prim.GetAttribute("inputs:color").Set(lazy.pxr.Gf.Vec3f(*color))
+            light_prim.GetAttribute("inputs:intensity").Set(intensity)
+            light_prim.GetAttribute("inputs:color").Set(lazy.pxr.Gf.Vec3f(*color))

@@ -4,11 +4,11 @@ import os
 import torch as th
 
 from omnigibson.macros import gm
-from omnigibson.robots.manipulation_robot import GraspingPoint, ManipulationRobot
+from omnigibson.robots.robot import GraspingPoint, Robot
 from omnigibson.utils.transform_utils import euler2quat
 
 
-class WidowX(ManipulationRobot):
+class WidowX(Robot):
     """
     The VX300-6DOF arm from Trossen Robotics
     (https://www.trossenrobotics.com/docs/interbotix_xsarms/specifications/vx300s.html)
