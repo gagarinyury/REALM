@@ -203,11 +203,12 @@ class MultiFingerGripperController(GripperController):
             u = th.where(should_open[:, None], open_limit, closed_limit)  # (N, ctrl_dim)
             # NOTE: removed here -- REALM's original code additionally did
             # `u[2:] = joint_pos[:2] / 0.05 * 0.785` to manually drive the *outer* finger
-            # joints of its custom 4-DOF DROID/Robotiq-style gripper. The native "franka"
-            # gripper we now use only has 2 DOF (standard parallel-jaw fingers, no separate
-            # outer-finger joints), so that line no longer applies and would index out of
-            # bounds; dropped as part of the DROID->franka substitution (see thesis Methodology
-            # caveat on using the stock Franka model).
+            # joints of its custom DROID gripper, whose controller spanned 4 DOFs. We run the
+            # stock franka_robotiq model, whose definition exposes 2 controlled finger joints
+            # (`left/right_outer_knuckle_joint`); the remaining Robotiq linkage joints are not
+            # driven by this controller. That line would therefore index out of bounds, and the
+            # coupling it emulated is handled by the model itself. See the thesis Methodology
+            # note on using the stock franka_robotiq asset instead of REALM's droid.usd.
         else:
             # Use continuous signal. Make sure to go from command to control dim.
             u = target * th.ones(self.control_dim) if target.shape[1] == 1 else target

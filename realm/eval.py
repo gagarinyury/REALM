@@ -146,6 +146,21 @@ def evaluate(
     )
     og.log.info(f"DEBUG: Env created: {time.perf_counter() - start:.4f}s")
 
+    # NOTE: patched -- resolve which proprio entry encodes the gripper opening, and its range,
+    # from the robot that was actually loaded. Upstream assumed REALM's own DROID gripper
+    # (proprio[7] as finger travel in metres, full stroke 0.05). On any other gripper that
+    # silently feeds the policy a wrong `observation/gripper_position`. See inference/utils.py.
+    _arm = env.robot.default_arm
+    _gripper_qpos_idx = int(env.robot.gripper_control_idx[_arm][0])
+    _gripper_qpos_range = (
+        float(env.robot.joint_lower_limits[_gripper_qpos_idx]),
+        float(env.robot.joint_upper_limits[_gripper_qpos_idx]),
+    )
+    og.log.info(
+        f"DEBUG: gripper qpos idx={_gripper_qpos_idx} range={_gripper_qpos_range} "
+        f"(joint '{list(env.robot.joints.keys())[_gripper_qpos_idx]}')"
+    )
+
     results = []
     start_repeat = 0
     results_filename = None
@@ -199,7 +214,10 @@ def evaluate(
         was_grasping = False
 
         while t < max_steps and terminal_steps > 0:
-            base_im, base_depth, base_im_second, base_depth_second, wrist_im, robot_state, gripper_state = extract_from_obs(obs, robot_name=env.robot.name)
+            base_im, base_depth, base_im_second, base_depth_second, wrist_im, robot_state, gripper_state = extract_from_obs(
+                obs, robot_name=env.robot.name,
+                gripper_qpos_idx=_gripper_qpos_idx, gripper_qpos_range=_gripper_qpos_range,
+            )
 
             # Metrics collection
             ee_pos, ee_rot = env.get_ee_pose()

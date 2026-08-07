@@ -308,7 +308,17 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
         cfg_robot = yaml.load(open(f"{self.config_path}/robots/{self.robot_name}.yaml", "r"), Loader=yaml.FullLoader)
         self.ee_control = cfg_robot["robots"][0].get("ee_control", False)
-        cfg_robot["robots"][0]["position"] = robot_pos
+        # NOTE: patched -- REALM's REALM_DROID10 tasks load `droid_mounted.usd`, a DROID that
+        # ships its own pedestal raising the arm to worktop height, so scene poses in
+        # scenes.yaml are given with z=0 (pedestal foot on the floor). We run the stock
+        # franka_robotiq model, which is the arm alone, so its base has to be lifted by that
+        # same DROID_BASE_HEIGHT explicitly -- otherwise the arm sits on the floor while the
+        # external cameras (which already add this offset, see setup_cameras below) and the
+        # world<->robot transforms keep pointing at worktop height.
+        robot_pos_cfg = np.array(robot_pos, dtype=float)
+        if self.use_droid_with_base:
+            robot_pos_cfg[2] += DROID_BASE_HEIGHT
+        cfg_robot["robots"][0]["position"] = robot_pos_cfg.tolist()
         cfg_robot["robots"][0]["orientation"] = omnigibson_transform_utils.euler2quat(
             torch.tensor(robot_rot, dtype=torch.float32)).tolist()
         cfg_robot["robots"][0]["fixed_base"] = True

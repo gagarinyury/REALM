@@ -1,26 +1,42 @@
 robots:
-  # NOTE: `type` patched for native-Windows execution. REALM's original custom
-  # "DROID" robot Python class (realm/robots/droid_arm.py) was registered via the
-  # old OmniGibson class-registry mechanism, which no longer exists in the current
-  # OmniGibson -- robots are now purely data-driven, loaded from dataset YAML/USD
-  # by `model` string (see REGISTERED_ROBOTS in omnigibson/robots/__init__.py).
-  # The dataset ships a native "franka" model (the same physical Franka Panda arm
-  # DROID is built on), so we point at that instead of authoring a full USD asset
-  # for REALM's custom DROID gripper/camera mount. `name` stays "DROID" so the
-  # rest of REALM's code (which branches on `if "DROID" in self.robot_name`)
-  # keeps using its DROID-specific task/perturbation logic; only the physical
-  # robot asset changes.
-  # CAVEAT for the thesis: the pi0_fast_droid checkpoint was trained on the DROID
-  # platform's specific gripper/camera geometry; using the stock Franka model here
-  # is a documented approximation, not an exact reproduction.
+  # NOTE: REALM's original custom "DROID" robot Python class (realm/robots/droid_arm.py) was
+  # registered through OmniGibson 1.1.1's class registry, which no longer exists -- robots are
+  # now discovered by globbing `{gm.DATA_PATH}/*/models/<name>/<name>.yaml` (REGISTERED_ROBOTS
+  # in omnigibson/robots/__init__.py) and instantiated as `Robot(**robot_config)`.
+  #
+  # We use the stock `franka_robotiq` model shipped with BEHAVIOR-1K, selected via the
+  # `robotiq` end-effector variant of the `franka` definition. That is the same physical
+  # platform DROID is built on (Franka Panda + Robotiq 2F-85) and, critically, it carries a
+  # wrist camera at the `camera_link` link.
+  #
+  # Why not REALM's own realm/robots/panda_robotiq/droid.usd: current OmniGibson requires the
+  # articulation graph to be a strict tree (prims/entity_prim.py::_compute_articulation_tree
+  # asserts in-degree 1 for every non-root link), while that asset models the Robotiq 2F-85 as
+  # a true parallel linkage with closed loops -- `inner_finger` is driven both by the base
+  # prismatic joint and from `outer_finger`. It therefore cannot be loaded at all on this
+  # engine, regardless of our code. (The asset additionally has two export slips: one
+  # outer-finger joint reversed relative to its mirror, and the other targeting mesh prims
+  # instead of links.)
+  #
+  # This matters far beyond robot fidelity: the wrist camera produces the observation key that
+  # realm/inference/utils.py::extract_from_obs looks for. An earlier revision of this file
+  # pointed at the stock `franka` model, which has no wrist camera at all -- REALM then
+  # silently substituted a black 128x128 image, starving pi0-FAST of the view it was trained
+  # on and pinning binary_SR at 0.00 across every rollout, with all other metrics still
+  # looking plausible.
+  #
+  # CAVEAT for the thesis: this is the DROID platform, not REALM's exact DROID asset. The
+  # wrist camera mounts on `panda_link7` as `camera_link` rather than on `panda_link8` as
+  # `gripper_link_camera`, so the viewpoint differs slightly, and the gripper exposes 2
+  # controlled joints instead of 4. Absolute success rates are therefore not directly
+  # comparable to the paper's table; internal comparisons remain valid.
   - name: "DROID"
-    type: "franka"
-    # NOTE: added -- native "franka" has 9 total DOF (7 arm + 2 standard parallel-jaw
-    # gripper fingers), vs. 11 for REALM's original custom DROID gripper (7 arm + 4).
-    # REALM's env_dynamic.py sizes the reset_joint_pos array from this "dof" key
-    # (falling back to a hardcoded DROID_DEFAULT_DOF=11 if absent), which otherwise
-    # mismatches franka's actual joint count.
-    dof: 9
+    model: "franka"
+    end_effector: "robotiq"
+    # 7 arm joints + 8 gripper joints, verified against the loaded articulation
+    # (franka_robotiq reports 15 joints; proprio vector length is 15 accordingly).
+    # REALM's env_dynamic.py sizes the reset_joint_pos array from this key, filling [:7].
+    dof: 15
     obs_modalities: ["rgb", "proprio"]
     proprio_obs: ["joint_qpos"]
     control_freq: 15
