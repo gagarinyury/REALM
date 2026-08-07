@@ -8,14 +8,20 @@
 # and `envs/env_base.py` lowercases the config's `type` to get the model name --
 # hence "droid", so REALM's original `type: "DROID"` resolves here unchanged.
 #
-# Every value below is transcribed from REALM's own droid_arm.py, not invented.
-# Link and joint names were verified against droid.usd itself with OpenUSD.
+# Every value below is transcribed from REALM's own droid_arm.py or verified
+# against droid.usd itself with OpenUSD, not invented.
 #
 # The wrist camera is the point of this file: /panda/gripper_link_camera/Camera
 # in droid.usd produces the observation key 'DROID:gripper_link_camera:Camera:0'
-# that realm/inference/utils.py::extract_from_obs looks for. With the stock
-# `franka` model that key is absent and REALM silently substitutes a black image,
-# which starves pi0-fast of its wrist view and pins the success rate at zero.
+# that realm/inference/utils.py::extract_from_obs looks for -- mounted on
+# panda_link8, which is what pi0-FAST was trained against. The stock
+# franka_robotiq carries its wrist camera on panda_link7 as `camera_link`
+# instead, and the plain `franka` model has none at all (with which REALM
+# silently substitutes a black image and pins the success rate at zero).
+#
+# REQUIRES the asset to have been passed through untangle_droid_gripper.py --
+# as shipped, droid.usd models the Robotiq 2F-85 as a closed parallel linkage
+# and current OmniGibson refuses to load it (see that script's docstring).
 
 raw_controller_order: ["arm_0", "gripper_0"]
 
@@ -28,17 +34,17 @@ default_controllers:
   gripper_0: MultiFingerGripperController
 
 # droid.usd carries the Robotiq 2F-85 sub-assets as sibling files with their
-# http references rewritten to local relative paths (upstream REALM left them
-# pointing at omniverse-content-production S3, which only resolved inside their
-# Docker image's Omniverse cache).
+# http references rewritten to local relative paths by relocalize_droid_refs.py
+# (upstream REALM left them pointing at omniverse-content-production S3, which
+# only resolved inside their Docker image's Omniverse cache).
 usd_path: "models/droid/usd/droid.usd"
 
-# From droid_arm.py::_default_robot_model_joint_pos -- 7 arm joints + 4 gripper.
-# NOTE: droid.usd declares 17 driven joints, but the Robotiq 2F-85 is a closed
-# parallel linkage, so several of them become loop-closure constraints rather
-# than articulation DOFs. 11 is what REALM itself declared and what its
-# controllers are written against; verify against the loaded articulation on the
-# first run and adjust here if the engine reports a different DOF count.
+# 13 DOF after untangle_droid_gripper.py: 7 arm revolute + 4 knuckle revolute
+# + 2 inner-finger revolute. The remaining 7 joints in the asset are fixed
+# (panda_joint8, camera_joint, panda_coupling_joint, panda_table_joint,
+# coupling_gripper_base_joint, and both outer_finger_knuckle joints).
+# Arm values are REALM's own, from droid_arm.py::_default_robot_model_joint_pos;
+# the gripper opens at zero.
 default_joint_pos: [
   0.143628523,
   -0.597331285,
@@ -51,7 +57,36 @@ default_joint_pos: [
   0.0,
   0.0,
   0.0,
+  0.0,
+  0.0,
 ]
+
+# Mirrors the stock Robotiq 2F-85 setup in models/ur5e/ur5e.yaml. Without these,
+# the gripper's own links collide with each other as it closes.
+disabled_collision_pairs:
+  - ["gripper_link_left_outer_knuckle", "gripper_link_left_outer_finger"]
+  - ["gripper_link_left_outer_knuckle", "gripper_link_left_inner_finger"]
+  - ["gripper_link_left_outer_knuckle", "gripper_link_left_inner_knuckle"]
+  - ["gripper_link_left_outer_knuckle", "gripper_link_right_outer_knuckle"]
+  - ["gripper_link_left_outer_knuckle", "gripper_link_right_outer_finger"]
+  - ["gripper_link_left_outer_knuckle", "gripper_link_right_inner_finger"]
+  - ["gripper_link_left_outer_knuckle", "gripper_link_right_inner_knuckle"]
+  - ["gripper_link_left_outer_finger", "gripper_link_left_inner_finger"]
+  - ["gripper_link_left_outer_finger", "gripper_link_left_inner_knuckle"]
+  - ["gripper_link_left_outer_finger", "gripper_link_right_outer_knuckle"]
+  - ["gripper_link_left_outer_finger", "gripper_link_right_outer_finger"]
+  - ["gripper_link_left_outer_finger", "gripper_link_right_inner_finger"]
+  - ["gripper_link_left_outer_finger", "gripper_link_right_inner_knuckle"]
+  - ["gripper_link_left_inner_finger", "gripper_link_left_inner_knuckle"]
+  - ["gripper_link_right_outer_knuckle", "gripper_link_right_outer_finger"]
+  - ["gripper_link_right_outer_knuckle", "gripper_link_right_inner_finger"]
+  - ["gripper_link_right_outer_knuckle", "gripper_link_right_inner_knuckle"]
+  - ["gripper_link_right_outer_finger", "gripper_link_right_inner_finger"]
+  - ["gripper_link_right_outer_finger", "gripper_link_right_inner_knuckle"]
+  - ["gripper_link_right_inner_finger", "gripper_link_right_inner_knuckle"]
+  - ["gripper_link_base", "gripper_link_coupling"]
+  - ["gripper_link_coupling", "panda_link8"]
+  - ["gripper_link_coupling", "panda_link7"]
 
 manipulation:
   arm_link_names:
@@ -62,10 +97,14 @@ manipulation:
     "0": "panda_link8"
   finger_link_names:
     "0": ["gripper_link_left_inner_finger", "gripper_link_right_inner_finger"]
-  # Order matters: gripper_control_idx is derived from this list (robot.py::gripper_control_idx),
-  # and REALM's droid_arm.py assumed gripper DOFs sit at indices 7..10.
+  # Two driven joints, as in every stock Robotiq 2F-85 in BEHAVIOR-1K. REALM's
+  # droid_arm.py declared four (the two prismatic joints and the two
+  # inner_finger joints), but those are exactly the linkage-closing joints
+  # untangle_droid_gripper.py removes; with the linkage broken, the fingers are
+  # driven from the outer knuckles instead. gripper_control_idx is derived from
+  # this list in robot.py::gripper_control_idx.
   finger_joint_names:
-    "0": ["left_inner_finger_prismatic_joint", "right_inner_finger_prismatic_joint", "left_inner_finger_joint", "right_inner_finger_joint"]
+    "0": ["left_outer_knuckle_joint", "right_outer_knuckle_joint"]
   teleop_rotation_offset:
     "0": [-1, 0, 0, 0]
 

@@ -308,15 +308,19 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
         cfg_robot = yaml.load(open(f"{self.config_path}/robots/{self.robot_name}.yaml", "r"), Loader=yaml.FullLoader)
         self.ee_control = cfg_robot["robots"][0].get("ee_control", False)
-        # NOTE: patched -- REALM's REALM_DROID10 tasks load `droid_mounted.usd`, a DROID that
-        # ships its own pedestal raising the arm to worktop height, so scene poses in
-        # scenes.yaml are given with z=0 (pedestal foot on the floor). We run the stock
-        # franka_robotiq model, which is the arm alone, so its base has to be lifted by that
-        # same DROID_BASE_HEIGHT explicitly -- otherwise the arm sits on the floor while the
-        # external cameras (which already add this offset, see setup_cameras below) and the
-        # world<->robot transforms keep pointing at worktop height.
+        # NOTE: patched -- REALM's REALM_DROID10 tasks assume a DROID asset that ships its own
+        # pedestal raising the arm to worktop height, so scene poses in scenes.yaml are given
+        # with z=0 (pedestal foot on the floor) while the external cameras and the
+        # world<->robot transforms add DROID_BASE_HEIGHT themselves (see setup_cameras below).
+        #
+        # That holds for REALM's own droid.usd, whose root link base_link sits 0.8645 m below
+        # panda_link0 -- it is the floor under the pedestal. It does NOT hold for the stock
+        # franka_robotiq model, which is the bare arm: without an explicit lift it stands on
+        # the floor while everything else keeps pointing at worktop height.
+        robot_model = str(cfg_robot["robots"][0].get("model", "")).lower()
+        robot_carries_pedestal = robot_model == "droid"
         robot_pos_cfg = np.array(robot_pos, dtype=float)
-        if self.use_droid_with_base:
+        if self.use_droid_with_base and not robot_carries_pedestal:
             robot_pos_cfg[2] += DROID_BASE_HEIGHT
         cfg_robot["robots"][0]["position"] = robot_pos_cfg.tolist()
         cfg_robot["robots"][0]["orientation"] = omnigibson_transform_utils.euler2quat(

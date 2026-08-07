@@ -21,10 +21,36 @@ import os
 log = create_module_logger(module_name=__name__)
 
 # NOTE: patched for native-Windows execution against a current OmniGibson (see PLAN.md /
-# thesis Methodology for the full rationale). Verified against franka's own model definition
-# file (omnigibson-robot-assets/models/franka/franka.yaml, end_effectors.gripper.eef_link_names)
-# -- not guessed. Only correct for the default "gripper" end-effector variant used here.
-EEF_LINK_NAME = "eef_link"
+# thesis Methodology for the full rationale). The end-effector link is named differently
+# depending on which robot asset is loaded, and both are in use here:
+#   "eef_link"    -- stock franka_robotiq (omnigibson-robot-assets/models/franka/franka.yaml,
+#                    end_effectors.<variant>.eef_link_names)
+#   "panda_link8" -- REALM's own droid.usd (realm/robots/droid_arm.py, and the link is present
+#                    in the asset under that name)
+# Both names are taken from the respective model definitions, not guessed. Resolved once per
+# routing path against the links the robot actually exposes, so adding another asset means
+# extending this tuple rather than editing call sites.
+EEF_LINK_CANDIDATES = ("eef_link", "panda_link8")
+
+_EEF_LINK_IDX_CACHE = {}
+
+
+def resolve_eef_link_index(routing_path):
+    """Индекс eef-линка для данного robot view; имя линка зависит от загруженного ассета."""
+    if routing_path in _EEF_LINK_IDX_CACHE:
+        return _EEF_LINK_IDX_CACHE[routing_path]
+    for name in EEF_LINK_CANDIDATES:
+        try:
+            idx = ControllableObjectViewAPI.get_link_index(routing_path, name)
+        except KeyError:
+            continue
+        log.info(f"[REALM] eef link resolved to '{name}' (index {idx}) for {routing_path}")
+        _EEF_LINK_IDX_CACHE[routing_path] = idx
+        return idx
+    raise KeyError(
+        f"None of the known end-effector links {EEF_LINK_CANDIDATES} exist on {routing_path}. "
+        f"Add this robot's eef link name to EEF_LINK_CANDIDATES."
+    )
 
 
 class IndividualJointPDController(LocomotionController, ManipulationController, GripperController):
@@ -136,7 +162,7 @@ class IndividualJointPDController(LocomotionController, ManipulationController, 
 
         # Batched relative Jacobians for ALL links of ALL group members: (N_view, n_links, 6, n_dof_total).
         all_jac = th.as_tensor(ControllableObjectViewAPI.get_all_relative_jacobians(routing_path))
-        eef_link_idx = ControllableObjectViewAPI.get_link_index(routing_path, EEF_LINK_NAME)
+        eef_link_idx = resolve_eef_link_index(routing_path)
         jac_row = eef_link_idx - 1  # Jacobian excludes root body (index 0), per ik_controller.py/osc_controller.py.
         # Select this group's rows, the eef link's row, and this controller's dof columns -> (N, 6, 7).
         jacobian_batch = all_jac[rows, jac_row][:, :, self.dof_idx].to(og.sim.device)
