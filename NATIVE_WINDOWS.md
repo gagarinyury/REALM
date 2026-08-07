@@ -60,31 +60,35 @@ rearchitected to a batched, multi-robot-capable design
 - `realm/environments/env_dynamic.py`, `perturbations/v_light.py` — wrapped
   direct USD prim edits in `og.sim.editing_usd()`, a guard added upstream
   for USD↔Fabric sync that didn't exist in 1.1.1.
-- `realm/config/robots/DROID.yaml` — `type: DROID` → `model: franka` with
-  `end_effector: robotiq`, i.e. the stock `franka_robotiq` shipped with
-  BEHAVIOR-1K. The DROID robot class no longer exists in the current
-  registry (robots are now purely data-driven by YAML model name). See
-  section 3 below for why REALM's own `droid.usd` cannot be loaded at all
-  on a current engine, and section 4 for the failure mode that picking the
-  wrong stock model produces. **This is a real methodological
-  substitution, not a transparent shim**: the published `pi0_fast_droid`
-  checkpoint was trained on DROID's specific gripper/arm geometry, and
-  while `franka_robotiq` is the same physical platform (Franka Panda +
-  Robotiq 2F-85), its wrist camera sits on `panda_link7` as `camera_link`
-  rather than on `panda_link8` as `gripper_link_camera`, and its gripper
-  exposes 2 controlled joints instead of 4. Absolute success rates are
-  therefore not directly comparable to the paper's table. If you have
-  access to a Linux cluster and can run REALM's official Docker image
-  against the pinned 1.1.1 version, you keep the real DROID robot and
-  don't need this substitution.
+- `realm/config/robots/DROID.yaml` — the DROID robot class no longer exists
+  in the current registry (robots are now purely data-driven by YAML model
+  name). Two configurations are supported. `model: droid` uses REALM's own
+  asset once it has been repaired as described in section 3, and is the
+  closer reproduction. `model: franka` with `end_effector: robotiq` uses the
+  stock `franka_robotiq` shipped with BEHAVIOR-1K, which needs no asset work;
+  section 4 describes the failure mode that picking the wrong stock model
+  produces. Picking the stock model **is a real methodological substitution,
+  not a transparent shim**: the published `pi0_fast_droid` checkpoint was
+  trained on DROID's specific gripper and arm geometry, and while
+  `franka_robotiq` is the same physical platform (Franka Panda + Robotiq
+  2F-85), its wrist camera sits on `panda_link7` as `camera_link` rather than
+  on `panda_link8` as `gripper_link_camera`, and it exposes a different
+  gripper linkage. Repairing the original asset removes that caveat, which is
+  why section 3 exists.
 - `realm/environments/env_dynamic.py` — the robot base is raised by
-  `DROID_BASE_HEIGHT` (0.86244 m). REALM's `REALM_DROID10` tasks load
-  `droid_mounted.usd`, a DROID that ships its own pedestal lifting the arm
-  to worktop height, so the poses in `scenes.yaml` are given with `z = 0`
-  (pedestal foot on the floor). `franka_robotiq` is the arm alone, so
-  without this offset it stands on the floor while the external cameras
-  (which already add the same offset) and the world↔robot transforms keep
-  pointing at worktop height.
+  `DROID_BASE_HEIGHT` (0.86244 m), but only for a robot that does not carry
+  its own pedestal. REALM's `REALM_DROID10` tasks assume a DROID whose root
+  link is the floor beneath its pedestal, so the poses in `scenes.yaml` are
+  given with `z = 0`
+  (pedestal foot on the floor). The repaired `droid.usd` satisfies that by
+  construction — its `base_link` sits 0.8645 m below `panda_link0`, matching
+  the hardcoded constant to within 2 mm. `franka_robotiq` is the arm alone,
+  so without the explicit offset it stands on the floor while the external
+  cameras (which already add the same offset) and the world↔robot transforms
+  keep pointing at worktop height.
+- `realm/robots/droid_joint_controller.py` — the end-effector link name is
+  resolved from the links the loaded robot actually exposes (`panda_link8` on
+  `droid.usd`, `eef_link` on stock `franka_robotiq`) rather than hardcoded.
 - `realm/robots/robot_ik/robot_ik_solver.py`, new `simple_arm.py` — REALM's
   IK solver depends on `dm_robotics.moma`/`dm_robotics.controllers`, which
   **have no Windows wheel at all** (Linux-only manylinux distribution,
@@ -107,54 +111,98 @@ rearchitected to a batched, multi-robot-capable design
 - Various path-separator fixes (`.split("/")` → normalized) for Windows
   paths in `env_dynamic.py` and `perturbations/_helpers.py`.
 
-### 3. Why REALM's own `droid.usd` cannot be loaded on a current engine
+### 3. Restoring REALM's own `droid.usd` on a current engine
 
-This one is not Windows-specific and will affect anyone moving REALM to a
-newer OmniGibson.
+Not Windows-specific: this will affect anyone moving REALM to a newer
+OmniGibson.
 
-`realm/robots/panda_robotiq/droid.usd` ships in this repository and does
-contain the real thing: the full Robotiq 2F-85 and the wrist camera at
-`/panda/gripper_link_camera/Camera`. It is unreachable for two separate
-reasons. The path in `droid_arm.py` is hardcoded for the Docker image
-(`os.path.join(gm.ASSET_PATH, "/app/realm/robots/...")`, where the leading
-slash discards `gm.ASSET_PATH` entirely), and the class registry it was
-loaded through no longer exists.
+`realm/robots/panda_robotiq/droid.usd` ships in this repository and contains
+the real thing — the full Robotiq 2F-85 and the wrist camera at
+`/panda/gripper_link_camera/Camera` on `panda_link8`. Two things make it
+unreachable out of the box. The path in `droid_arm.py` is hardcoded for the
+Docker image (`os.path.join(gm.ASSET_PATH, "/app/realm/robots/...")`, where
+the leading slash discards `gm.ASSET_PATH` entirely), and the class registry
+it was loaded through no longer exists.
 
-Registration itself turns out to be easy on a current engine — robots are
-discovered by globbing `{gm.DATA_PATH}/*/models/<name>/<name>.yaml`, so no
-Python class is needed at all, just a YAML whose values are all already
-present in `droid_arm.py`. The blocker is the asset:
-`prims/entity_prim.py::_compute_articulation_tree` requires the
-articulation graph to be a strict tree (in-degree 1 for every non-root
-link), and the Robotiq 2F-85 here is modelled as a genuine parallel
-linkage with closed loops — `inner_finger` is driven both by the base
-prismatic joint and from `outer_finger`. OmniGibson 1.1.1 had no such
-check.
+Registration is the easy half: robots are now discovered by globbing
+`{gm.DATA_PATH}/*/models/<name>/<name>.yaml`, so no Python class is needed,
+just a YAML whose values all already exist in `droid_arm.py`. See
+`realm/robots/panda_robotiq/droid_robot_definition.yaml`.
 
-Two further defects in the same asset look like export slips, and
-`realm/robots/panda_robotiq/fix_droid_articulation.py` in this fork
-repairs both: `left_outer_finger_knuckle_joint` has `body0`/`body1`
-reversed relative to its mirrored right-hand counterpart, and
-`right_outer_finger_knuckle_joint` targets mesh prims
-(`Defeatured_2F_85_..._finger2step`) instead of links. Because of them
-neither `outer_finger` is any joint's child, so
-`_preapply_articulation_root` finds three root candidates rather than one
-and fails even earlier. Separately, the asset references six Robotiq part
-files over **http** although all six sit next to it on disk;
-`relocalize_droid_refs.py` rewrites those references to the local copies.
+The real blocker is the asset. `prims/entity_prim.py` requires the
+articulation graph to be a strict tree, and the Robotiq 2F-85 here is a
+genuine parallel linkage: `inner_finger` is driven both by a prismatic joint
+from the gripper base and from `outer_finger`. Five links end up with an
+in-degree of two. OmniGibson 1.1.1 had no such check.
 
-Repairing the topology gets the asset down to a single root but still not
-to a tree, because the closed loop is deliberate geometry, not a mistake.
-The remaining route is the one REALM's own authors took:
-`realm/misc/modified_entity_prim.py` is a verbatim copy of OmniGibson's
-`entity_prim.py` with those assertions stripped ("modified to remove
-specific assertions on robot kinematic trees that made our USD file
-incompatible"). It was taken against 1.1.1 and is not wired into anything
-in the repo. Carrying that patch forward to a current `entity_prim.py` is
-plausible — the file has only drifted ~80 lines across two major versions
-— but it means vendoring a 1.6k-line internal engine file and re-applying
-it on every upgrade. We chose the stock `franka_robotiq` instead. Either
-way, "just point at `droid.usd`" is not among the options.
+Upstream's own workaround is `realm/misc/modified_entity_prim.py` — a
+verbatim copy of the engine's `entity_prim.py` with the offending assertions
+commented out ("modified to remove specific assertions on robot kinematic
+trees that made our USD file incompatible"). Diffing it against the original
+from `v1.1.1` shows the patch to be exactly three suppressed assertions, and
+all three are present unchanged in 3.9.1 — so the approach still works, at
+the price of vendoring a 1.6k-line internal engine file forever.
+
+**This fork repairs the asset instead, and modifies no engine file.** The
+precedent is BEHAVIOR-1K's own robots: stock `ur5e` carries the same Robotiq
+2F-85 and loads without complaint, because Stanford never model the closing
+link of the parallelogram. Their gripper is a plain tree and the coordinated
+jaw motion is reproduced by PhysX mimic joints, each slaved to the driven
+`outer_knuckle` with a gearing of -1. Three idempotent scripts bring
+`droid.usd` to the same form; run them in this order, each asserts its own
+postcondition:
+
+```
+python realm/robots/panda_robotiq/relocalize_droid_refs.py  <droid.usd>
+python realm/robots/panda_robotiq/untangle_droid_gripper.py <droid.usd>
+python realm/robots/panda_robotiq/align_droid_root.py       <droid.usd>
+```
+
+1. **`relocalize_droid_refs.py`** — the asset references six Robotiq part
+   files over http (`omniverse-content-production` S3) although all six sit
+   next to it on disk under the same names; upstream downloaded them but
+   never rewrote the references, which resolved through the Omniverse cache
+   inside their Docker image. Rewritten to local relative paths.
+
+2. **`untangle_droid_gripper.py`** — brings the gripper to the stock
+   topology. Reverses three joints recorded `finger -> knuckle`; re-binds
+   `right_outer_finger_knuckle_joint` from mesh prims
+   (`Defeatured_2F_85_..._finger2step`) onto links, a mirrored export slip,
+   recomputing its relative pose from the asset's world transforms; removes
+   the four joints forming the second path to each finger; clears
+   `excludeFromArticulation`, which upstream set on the entire gripper
+   precisely because PhysX cannot hold closed loops inside an articulation;
+   and gives the four now-undriven joints mimic relationships to their driven
+   knuckle, with gearing and limits copied from stock `ur5e`, removing their
+   `PhysicsDriveAPI`. Result: 24 joints to 20, five loop closures to none,
+   three root candidates to one, nine actuated joints exactly as in the stock
+   model.
+
+3. **`align_droid_root.py`** — the asset's origin sits at worktop height
+   while its root link `base_link` represents the floor under the robot's
+   pedestal, 0.85 m below, and the engine asserts that entity prim and root
+   link coincide. Moves the frame of reference onto `base_link`. This is a
+   reparameterisation, not a displacement, and the script verifies it: every
+   link's world pose is unchanged to numerical zero.
+
+Two consequences worth knowing. `base_link` sits 0.8645 m below
+`panda_link0` — against `DROID_BASE_HEIGHT = 0.86244` hardcoded in
+`env_dynamic.py`, a 2 mm match, confirming REALM's scene poses and camera
+offsets were written for exactly this asset. And the end-effector link is
+`panda_link8` here but `eef_link` on stock `franka_robotiq`, which
+`droid_joint_controller.py` now resolves from the loaded robot rather than
+assuming.
+
+The cost: the jaws are no longer coupled by a mechanism but by mimic
+constraints, so their parallelism is enforced by the solver rather than by
+geometry. That is the same assumption every stock Robotiq in BEHAVIOR-1K
+operates under, but it is an assumption. What it buys is the wrist camera in
+its original place on `panda_link8` — the viewpoint the `pi0_fast_droid`
+checkpoint was trained against.
+
+Verified on OmniGibson 3.9.1: environment created, 13 DOF, eef `panda_link8`,
+wrist camera present as `DROID:gripper_link_camera:Camera:0` with a maximum
+pixel value of 239, gripper range `[0, 45 deg]`.
 
 ### 4. The silent black wrist camera
 
@@ -223,12 +271,16 @@ Full pipeline verified working end-to-end natively on Windows (RTX 5080,
 calls over the network, action execution, and metrics/video/trajectory
 logging to disk — a complete rollout with no crashes.
 
-Both cameras now return real images (the wrist view measured at
-`max = 239`, `mean = 97.4` after the fixes in section 4; it was uniformly
-0 before). Robot base pose relative to the scene is still being aligned,
-so no success-rate numbers from this fork should be quoted yet — any
-rollouts recorded before the section-4 fixes are invalid by construction,
-since the policy never saw its wrist view.
+REALM's own `droid.usd` loads and runs after the asset repair of section 3:
+13 DOF, end-effector `panda_link8`, wrist camera present as
+`DROID:gripper_link_camera:Camera:0`, gripper range `[0, 45 deg]`. Both
+cameras return real images (wrist `max = 239`, `mean = 98.6`; it was
+uniformly 0 before the section-4 fixes).
+
+Robot base pose relative to the scene is still being aligned — the wrist view
+currently points away from the work area — so no success-rate numbers from
+this fork should be quoted yet. Any rollouts recorded before the section-4
+fixes are invalid by construction, since the policy never saw its wrist view.
 
 ## Attribution
 
