@@ -1,36 +1,26 @@
 robots:
-  # REALM's original custom "DROID" robot Python class (realm/robots/droid_arm.py) was
-  # registered through OmniGibson 1.1.1's class registry, which no longer exists -- robots are
-  # now discovered by globbing `{gm.DATA_PATH}/*/models/<name>/<name>.yaml` (REGISTERED_ROBOTS
-  # in omnigibson/robots/__init__.py) and instantiated as `Robot(**robot_config)`.
+  # Fallback configuration: the stock `franka_robotiq` model shipped with BEHAVIOR-1K, selected
+  # via the `robotiq` end-effector variant of the `franka` definition. Use this when the asset
+  # repair described in DROID.yaml is not available -- it needs no asset work at all.
   #
-  # This configuration uses REALM's own droid.usd, registered as a data-driven model. The asset
-  # does not load as shipped -- its Robotiq 2F-85 is a true parallel linkage with closed loops,
-  # while the engine requires a strict articulation tree -- so it must first be passed through
-  # the repair scripts in realm/robots/panda_robotiq/ (see NATIVE_WINDOWS.md section 3):
+  # It is the same physical platform DROID is built on (Franka Panda + Robotiq 2F-85) and it
+  # does carry a wrist camera, at the `camera_link` link. That last point is not a detail: an
+  # earlier revision pointed at the plain `franka` model, which has no wrist camera, and REALM
+  # silently substituted a black 128x128 image -- starving pi0-FAST of the view it was trained
+  # on and pinning binary_SR at 0.00 across every rollout while all other metrics still looked
+  # plausible.
   #
-  #   relocalize_droid_refs.py    http references to Robotiq parts -> local copies
-  #   untangle_droid_gripper.py   break the loop, restore the coupling with mimic joints
-  #   align_droid_root.py         move the frame of reference onto the root link
-  #
-  # and installed as {gm.DATA_PATH}/omnigibson-robot-assets/models/droid/, with
-  # droid_robot_definition.yaml as models/droid/droid.yaml.
-  #
-  # Why bother, rather than using the stock franka_robotiq (kept in DROID_franka_robotiq.yaml):
-  # this is the actual asset REALM was calibrated against. The wrist camera sits on panda_link8
-  # as `gripper_link_camera` -- the viewpoint the pi0_fast_droid checkpoint was trained on --
-  # rather than on panda_link7 as `camera_link`, and the end-effector geometry is the original.
-  #
-  # CAVEAT for the thesis: the repair breaks the gripper's four-bar linkage and reproduces the
-  # jaw coupling with mimic constraints instead, as every stock Robotiq in BEHAVIOR-1K does.
-  # Parallelism of the jaws is therefore enforced by the solver rather than by geometry.
+  # CAVEAT: this is the DROID platform, not REALM's own asset. The wrist camera mounts on
+  # panda_link7 as `camera_link` rather than on panda_link8 as `gripper_link_camera`, so the
+  # viewpoint differs, and the gripper linkage is not the original one. Absolute success rates
+  # are therefore further from the paper's table than with the repaired asset.
   - name: "DROID"
-    model: "droid"
-    # 13 DOF after the asset repair: 7 arm + 4 knuckle + 2 inner finger, verified against
-    # the loaded articulation. REALM's env_dynamic.py sizes reset_joint_pos from this key,
-    # filling [:7]. For the stock franka_robotiq fallback the value is 15 -- see
-    # DROID_franka_robotiq.yaml.
-    dof: 13
+    model: "franka"
+    end_effector: "robotiq"
+    # 7 arm joints + 8 gripper joints, verified against the loaded articulation
+    # (franka_robotiq reports 15 joints; proprio vector length is 15 accordingly).
+    # REALM's env_dynamic.py sizes the reset_joint_pos array from this key, filling [:7].
+    dof: 15
     obs_modalities: ["rgb", "proprio"]
     proprio_obs: ["joint_qpos"]
     control_freq: 15
