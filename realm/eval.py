@@ -140,9 +140,12 @@ def evaluate(
         no_rendering=no_render,
         rendering_mode=rendering_mode,
         robot=robot,
-        # NOTE: patched -- default rendering_frequency (unset -> config file default)
-        # is below the 60 FPS OmniGibson requires for isosurface HQ rendering.
-        common_freq=60,
+        # NOTE: patched -- OmniGibson refuses HQ isosurface rendering below 60 FPS, so the
+        # rendering frequency is raised. Deliberately NOT `common_freq`: that would raise the
+        # action and control frequencies too, and the DROID checkpoints are trained at 15 Hz.
+        # At 60 Hz a 500-step episode covers 8 s of simulated time instead of 33 s, while the
+        # REALM paper reports ~20 s to complete a task -- the arm simply runs out of episode.
+        render_freq=60,
     )
     og.log.info(f"DEBUG: Env created: {time.perf_counter() - start:.4f}s")
 

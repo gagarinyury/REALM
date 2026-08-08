@@ -299,6 +299,22 @@ openpi) inside WSL2, sharing one physical GPU. Two things worth knowing:
   running natively alongside. The swap entry is insurance: paging is
   preferable to a process that dies without saying so.
 
+- **Scheduled tasks must not go through a `.cmd` wrapper.** A task whose action is a
+  batch file runs `cmd.exe` in the interactive session and draws a console window on
+  the logged-in user's desktop — unacceptable if someone is working at the machine.
+  Nested quoting makes `schtasks /Create` awkward with a direct `wsl.exe -- bash -c
+  "..."` action, but the fix is a VBScript wrapper rather than a batch file:
+
+  ```vbs
+  CreateObject("Wscript.Shell").Run "wsl.exe -- bash -c ""bash /mnt/c/.../serve_policy.sh > /mnt/c/.../serve_policy.log 2>&1""", 0, False
+  ```
+
+  launched as `wscript.exe //B //Nologo <script>.vbs`. The `0` is the window style —
+  hidden at launch, rather than suppressed after the fact. Verify with
+  `Get-Process | Where-Object { $_.MainWindowTitle -ne '' }`, which must come back
+  empty. Also remember that `schtasks /Create /SC ONCE /ST <time>` arms a real trigger:
+  the task will fire on its own at that time unless you `schtasks /Change /DISABLE` it.
+
 ### 6. A partially downloaded checkpoint reports success
 
 Worth knowing because the failure surfaces far from its cause. `openpi`

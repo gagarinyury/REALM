@@ -155,6 +155,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         task_cfg_path="REALM_DROID10/put_green_block_into_bowl/default.cfg",
         perturbations=None,
         common_freq: int = None,
+        render_freq: int = None,
         no_rendering: bool = False,
         multi_view: bool = False,
         rendering_mode: str = "rt",
@@ -172,6 +173,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         self.scene_part = scene_part
         self.reset_qpos = reset_qpos if reset_qpos is not None else DEFAULT_RESET_JOINTPOS
         self.common_freq = common_freq
+        self.render_freq = render_freq
         self.supported_pertrubations = {
             'Default':  lambda: _pert_default(self),
             "V-AUG":    lambda: _pert_default(self),  # V-AUG is applied when distorting the images in obs
@@ -210,9 +212,17 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         if "SB-NOUN" in self.active_perturbations and cfg["task_type"] == "push":
             raise NotImplementedError() # TODO: move this to some compatibility matrix / exclusion list
 
+        # NOTE: patched -- `common_freq` raises rendering, action and control frequency
+        # together. We need the first one at 60 Hz (OmniGibson refuses HQ isosurface
+        # rendering below that) but must NOT touch the other two: the DROID checkpoints
+        # are trained at 15 Hz, and running the policy at 60 Hz shortens a 500-step
+        # episode from 33 s to 8 s of simulated time, while the paper reports ~20 s to
+        # complete a task. `render_freq` therefore adjusts rendering only.
         if common_freq is not None:
             cfg["env"]["rendering_frequency"] = common_freq
             cfg["env"]["action_frequency"] = common_freq
+        elif render_freq is not None:
+            cfg["env"]["rendering_frequency"] = render_freq
 
         self.mo_pos_orig = np.array(mo_cfgs[0]["position"])
         self.mo_rot_orig = np.array(mo_cfgs[0]["orientation"] if "orientation" in mo_cfgs[0] else [0, 0, 0, 1])
