@@ -278,6 +278,27 @@ openpi) inside WSL2, sharing one physical GPU. Two things worth knowing:
   rises as the checkpoint is read). Enter WSL2 again only once the port
   answers, or after the server is deliberately stopped.
 
+- **WSL2's default memory limit does not fit the larger checkpoints.** WSL2
+  takes half the host's RAM by default — 15.5 GB on a 31 GB machine — and the
+  `pi05_droid_jointpos` checkpoint is 12 GB on disk. Loading it exceeds the
+  limit once Python and JAX are accounted for, and the OOM killer takes the
+  process silently: the log simply stops after `Restoring checkpoint from
+  ...`, with no traceback and no exit message, which looks exactly like the
+  SSH teardown described above. `pi0_fast_droid_jointpos` (11 GB) fits, so
+  the problem only appears when switching models. Fix in `%USERPROFILE%\.wslconfig`:
+
+  ```ini
+  [wsl2]
+  vmIdleTimeout=-1
+  memory=20GB
+  swap=8GB
+  ```
+
+  followed by `wsl --shutdown`. The reservation is virtual — WSL2 commits
+  pages as needed — so leaving 11 GB for Windows still accommodates Isaac Sim
+  running natively alongside. The swap entry is insurance: paging is
+  preferable to a process that dies without saying so.
+
 ### 6. A partially downloaded checkpoint reports success
 
 Worth knowing because the failure surfaces far from its cause. `openpi`
