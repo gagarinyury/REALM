@@ -263,6 +263,45 @@ openpi) inside WSL2, sharing one physical GPU. Two things worth knowing:
   needed a launch mechanism outside any SSH session entirely — the only
   approach that reliably worked was launching it via the Windows Task
   Scheduler (`schtasks /Create ... /SC ONCE` + `schtasks /Run`).
+- **The same teardown kills a server you did not start.** A Task
+  Scheduler-launched policy server is destroyed by *any* subsequent
+  `ssh <host> "wsl -- <command>"`, including a read-only one. Checking on it
+  with `wsl -- bash -c 'tail /root/serve_policy.log'` is enough to kill it.
+  The symptom is thoroughly misleading: the log simply stops mid-line, with
+  no traceback, exactly as if the process had hung on that step. The only
+  place the truth shows up is the task's exit code,
+  `Last Result: -1073741510` (`STATUS_CONTROL_C_EXIT`), i.e. terminated from
+  outside. Cost us four consecutive "crashes" that were nothing of the sort.
+  While a server is running or loading, observe it **only from the Windows
+  side** — `Test-NetConnection -Port 8000` for readiness, `nvidia-smi` for
+  GPU memory, and `Get-Process vmmemWSL` for the VM's RAM footprint (which
+  rises as the checkpoint is read). Enter WSL2 again only once the port
+  answers, or after the server is deliberately stopped.
+
+### 6. A partially downloaded checkpoint reports success
+
+Worth knowing because the failure surfaces far from its cause. `openpi`
+caches checkpoints under `~/.cache/openpi/openpi-assets/checkpoints/`, and
+`openpi.shared.download.maybe_download` treats an existing directory as a
+completed download. Interrupt a first download — a timeout, a killed SSH
+session, anything — and every later call returns the truncated cache as
+`OK`. The model then fails much later, while reading weights:
+
+```
+ValueError: OUT_OF_RANGE: Error reading "params.PaliGemma.llm.embedder.input_embedding/0.0"
+  ... Requested byte range [0, 1957696997) is not valid for value of size 1330626560
+```
+
+Recovery is to delete the checkpoint directory (plus its `.partial` and
+`.lock` siblings) and download again in one uninterrupted run, then verify
+by size rather than by the tool's own report — comparing the largest files
+against a known-good checkpoint works well, since the DROID checkpoints are
+structurally identical and each is roughly 11 GB.
+
+Note also that the download runs through `gcsfs` unless `gsutil` is present;
+the `gsutil not found, falling back to gcsfs` warning is harmless and the
+transfer is fast (~75 MB/s in our setup), so a stalled download is more
+likely to be a killed process than a network problem.
 
 ## Status
 
