@@ -375,16 +375,40 @@ against `logs/actions` is decisive. Correct pairing gives a mean
 `|action - qpos|` around 0.01 rad; the broken one gives commands hovering
 near zero regardless of where the arm currently is.
 
-So use the pairing REALM's own README states, and take the horizon that
-comes with it — `pi0_fast_full_droid_finetune` *is* the training config of
-`pi0_fast_droid_jointpos`, so its horizon of 16 is that checkpoint's
-horizon:
+The obvious repair — reach for the config that does declare
+`JOINT_POSITION`, which for π0-FAST is `pi0_fast_full_droid_finetune` —
+substitutes one silent failure for a worse one. That config also declares
+`action_horizon=16` and `max_token_len=180`, and under those the checkpoint
+decodes nothing at all: `FASTTokenizer.extract_actions` finds no `Action: `
+marker in the generated text and returns `np.zeros`, silently
+(`openpi/models/tokenizer.py`). `AbsoluteActions` then adds the current
+state to that zero, so the reply looks like "almost where you already are"
+and the arm drifts along plausibly while the policy is, in fact, mute.
+
+The pairing that works is `pi0_fast_droid_jointpos_polaris` — horizon 10,
+`max_token_len` 180, `action_space=JOINT_POSITION`:
 
 ```bash
 uv run scripts/serve_policy.py policy:checkpoint \
-    --policy.config=pi0_fast_full_droid_finetune \
+    --policy.config=pi0_fast_droid_jointpos_polaris \
     --policy.dir=gs://openpi-assets/checkpoints/pi0_fast_droid_jointpos
 ```
+
+The config lives in `openpi/training/misc/polaris_config.py` and is
+registered in the main config list. It names a different checkpoint of its
+own, but that does not matter here: with `--policy.dir` given, norm stats
+are deliberately loaded from the checkpoint rather than from the config's
+assets directory (`policies/policy_config.py`, with a comment to that
+effect), so the denormalisation is the one belonging to our weights.
+
+**Check for the mute-policy failure before trusting any rollout.** It takes
+a minute and needs no simulator: send the server one observation and
+compare the reply against the denormalisation of a normalised zero,
+computed from the checkpoint's own `norm_stats.json`. Two things give the
+failure away — every channel matches that zero, and every row of the action
+chunk is identical. A working policy answers differently to different
+inputs; the mute one returns the same vector for a real observation and for
+uniform noise.
 
 ### 8. HQ rendering and the DROID rate are mutually exclusive when headless
 
@@ -434,16 +458,20 @@ exterior view matches the reference frames published in the REALM paper:
 the arm is outside that camera's frustum in the Default setting, which is
 how the benchmark is meant to look, not a misalignment on our side.
 
-No success-rate numbers from this fork should be quoted yet. Rollouts
-recorded before the section-4 fixes are invalid by construction, since the
-policy never saw its wrist view; those recorded before sections 7 and 8 are
-invalid too, since the policy either ran at four times its training rate or
-had its output interpreted in the wrong space. With all four addressed, the
-arm moves smoothly and stays in a sane configuration, but task progression
-on `put_green_block_into_bowl` is still zero and the gripper channel returns
-a constant 0.4999 against REALM's `> 0.5` threshold. That is being
-investigated; the next discriminating experiment is the same stand under
-π0.5, whose config pairing was never wrong.
+Rollouts recorded before the section-4 fixes are invalid by construction,
+since the policy never saw its wrist view; those recorded before sections 7
+and 8 are invalid too, since the policy either ran at four times its
+training rate, or had its output interpreted in the wrong space, or was
+returning zeros.
+
+With all of them addressed, π0-FAST drives the arm for the first time on
+this fork: on `put_green_block_into_bowl` (Default, 800 steps) it clears the
+REACH stage at step 290, brings the gripper onto the block and commands a
+close for 184 of the 800 steps, with the fingers travelling their full
+range. The block is not retained, so progression stops at 0.2 and the run
+scores no binary success. Single-task numbers are not comparable to the
+0.61 in REALM's README, which averages tiered progression over all ten
+tasks — but the stand now measures something rather than nothing.
 
 ## Attribution
 
