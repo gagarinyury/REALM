@@ -340,6 +340,81 @@ the `gsutil not found, falling back to gcsfs` warning is harmless and the
 transfer is fast (~75 MB/s in our setup), so a stalled download is more
 likely to be a killed process than a network problem.
 
+### 7. The `*_droid_jointpos` checkpoints predict deltas, not positions
+
+The names suggest otherwise, and getting this wrong costs a day. Both
+`pi0_fast_droid_jointpos` and `pi05_droid_jointpos` are trained to predict
+**delta** joint positions. The conversion back to absolute targets is not
+part of the checkpoint — it lives in the training config, and only in the
+one that declares `action_space=JOINT_POSITION`:
+
+```python
+# openpi/src/openpi/training/config.py
+if self.action_space == droid_rlds_dataset.DroidActionSpace.JOINT_POSITION:
+    # Data loader returns absolute joint position actions -- convert to delta actions for training.
+    delta_action_mask = _transforms.make_bool_mask(7, -1)
+    data_transforms = data_transforms.push(
+        inputs=[_transforms.DeltaActions(delta_action_mask)],
+        outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+    )
+```
+
+The mask is seven joints as deltas, gripper absolute. Serve such a
+checkpoint under any other config — `pi0_fast_droid` is the tempting one,
+since its `action_horizon` of 10 looks friendlier than the finetune
+config's 16 — and `AbsoluteActions` is absent. The server then returns raw
+increments of roughly 0.01 to 0.06 rad, REALM's joint controller applies
+them as absolute targets (`droid_joint_controller.py`: `target_joint_pos =
+command`), and the arm walks to the zero configuration, straight up, where
+it stays for the rest of the episode.
+
+Nothing reports an error: the vectors have the right shape, the robot
+moves, metrics and video are written. The tell is in the logs —
+`realm/eval.py` records `robot_state` into `logs/qpos`, so comparing it
+against `logs/actions` is decisive. Correct pairing gives a mean
+`|action - qpos|` around 0.01 rad; the broken one gives commands hovering
+near zero regardless of where the arm currently is.
+
+So use the pairing REALM's own README states, and take the horizon that
+comes with it — `pi0_fast_full_droid_finetune` *is* the training config of
+`pi0_fast_droid_jointpos`, so its horizon of 16 is that checkpoint's
+horizon:
+
+```bash
+uv run scripts/serve_policy.py policy:checkpoint \
+    --policy.config=pi0_fast_full_droid_finetune \
+    --policy.dir=gs://openpi-assets/checkpoints/pi0_fast_droid_jointpos
+```
+
+### 8. HQ rendering and the DROID rate are mutually exclusive when headless
+
+Three constraints meet on OmniGibson 3.9.1 and cannot all hold:
+
+1. headless requires `rendering_dt == sim_step_dt` (`simulator.py`,
+   `_validate_dts`);
+2. `gm.ENABLE_HQ_RENDERING` asserts a rendering frequency of at least
+   60 FPS, inside the isosurface block of `_set_renderer_settings`;
+3. the DROID checkpoints run at 15 Hz, which `realm/eval.py::set_sim_config`
+   sets as `DEFAULT_SIM_STEP_FREQ` and `DEFAULT_RENDERING_FREQ`.
+
+REALM enables HQ rendering for every mode except `r`, so its own default
+`rt` configuration does not start on this engine version. It did on 1.1.1:
+compare `simulator.py` at tag `v1.1.1` of the (then separate)
+`StanfordVL/OmniGibson` repository, where the flag toggles RTX settings
+only and no frame-rate assert exists. The headless assert was already
+there, and was satisfied, because both frequencies were 15.
+
+Raising the rendering frequency to 60 is the obvious escape and the wrong
+one — headless drags the action and control rates up with it, and the
+policy then runs four times faster than it was trained for. What the flag
+still guards on 3.9.1 is narrow: DLSS "Realism" versus "Performance",
+`updateVelocitiesToUsd`, and the isosurface path itself. Reflections,
+indirect diffuse and ambient occlusion are now enabled unconditionally. So
+turn the flag off and restore the one setting that matters for a scene
+without particle systems — which is what `set_rendering_mode` now does for
+`rt`. No REALM_DROID10 task contains fluids or particles, so the isosurface
+path is dead weight here regardless.
+
 ## Status
 
 Full pipeline verified working end-to-end natively on Windows (RTX 5080,
@@ -353,10 +428,22 @@ REALM's own `droid.usd` loads and runs after the asset repair of section 3:
 cameras return real images (wrist `max = 239`, `mean = 98.6`; it was
 uniformly 0 before the section-4 fixes).
 
-Robot base pose relative to the scene is still being aligned — the wrist view
-currently points away from the work area — so no success-rate numbers from
-this fork should be quoted yet. Any rollouts recorded before the section-4
-fixes are invalid by construction, since the policy never saw its wrist view.
+The robot base pose was measured against the scene and matches to the
+millimetre, and the wrist field of view was corrected (section 3). The
+exterior view matches the reference frames published in the REALM paper:
+the arm is outside that camera's frustum in the Default setting, which is
+how the benchmark is meant to look, not a misalignment on our side.
+
+No success-rate numbers from this fork should be quoted yet. Rollouts
+recorded before the section-4 fixes are invalid by construction, since the
+policy never saw its wrist view; those recorded before sections 7 and 8 are
+invalid too, since the policy either ran at four times its training rate or
+had its output interpreted in the wrong space. With all four addressed, the
+arm moves smoothly and stays in a sane configuration, but task progression
+on `put_green_block_into_bowl` is still zero and the gripper channel returns
+a constant 0.4999 against REALM's `> 0.5` threshold. That is being
+investigated; the next discriminating experiment is the same stand under
+π0.5, whose config pairing was never wrong.
 
 ## Attribution
 

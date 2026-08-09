@@ -143,6 +143,13 @@ def set_rendering_mode(rendering_mode):
         carb_settings.set_string("/isaaclab/rendering/rendering_mode", "performance")
     else:
         assert rendering_mode == "rt", f"rendering mode must be 'pt', 'rt', or 'r'"
+        # NOTE: patched -- "rt" used to get its quality entirely from gm.ENABLE_HQ_RENDERING,
+        # which eval.py can no longer set on OmniGibson 3.9.1 (see the note there). Of the
+        # settings that flag still guards, this is the only one that touches a scene without
+        # particle systems: DLSS "Realism" (1) rather than "Performance" (0). Everything else
+        # the HQ branch turns on -- reflections, indirect diffuse, ambient occlusion -- 3.9.1
+        # now enables unconditionally in Simulator._set_renderer_settings.
+        carb_settings.set_int("/rtx/post/dlss/execMode", 1)
 
 
 class RealmEnvironmentDynamic(RealmEnvironmentBase):

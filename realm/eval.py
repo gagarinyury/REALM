@@ -76,7 +76,16 @@ def set_sim_config(rendering_mode=None, robot="DROID"):
     gm.ENABLE_TRANSITION_RULES = False # this needs to be off to avoid bug with sludge state during collision: https://github.com/StanfordVL/BEHAVIOR-1K/issues/1201
     gm.ENABLE_OBJECT_STATES = True # this needs to be on because push_switch task usees the ToggledOn state
     gm.RENDER_VIEWER_CAMERA=False
-    gm.ENABLE_HQ_RENDERING = False if rendering_mode == "r" else True
+    # NOTE: patched -- upstream sets this to True for "rt" and "pt". On OmniGibson 3.9.1 that
+    # is no longer possible together with the DROID rate: the flag now also switches on the
+    # isosurface path, which asserts a rendering frequency of at least 60 FPS, while headless
+    # operation asserts rendering_dt == sim_step_dt. The DROID checkpoints are trained at 15 Hz,
+    # so the three constraints cannot hold at once. On 1.1.1, the version REALM targets, the flag
+    # only toggled RTX settings and no such assert existed (compare simulator.py at tag v1.1.1).
+    # Of everything the flag still guards on 3.9.1, only DLSS "Realism" affects a scene without
+    # particle systems -- and set_rendering_mode() restores that for "rt". The isosurface path
+    # itself is dead weight here: no REALM_DROID10 task contains fluids or particles.
+    gm.ENABLE_HQ_RENDERING = False
 
     seed = 1234
     random.seed(seed)
@@ -140,12 +149,11 @@ def evaluate(
         no_rendering=no_render,
         rendering_mode=rendering_mode,
         robot=robot,
-        # NOTE: patched -- OmniGibson refuses HQ isosurface rendering below 60 FPS, so the
-        # rendering frequency is raised. Deliberately NOT `common_freq`: that would raise the
-        # action and control frequencies too, and the DROID checkpoints are trained at 15 Hz.
-        # At 60 Hz a 500-step episode covers 8 s of simulated time instead of 33 s, while the
-        # REALM paper reports ~20 s to complete a task -- the arm simply runs out of episode.
-        render_freq=60,
+        # Frequencies are left to the task YAMLs and set_sim_config(): 15 Hz step and render,
+        # 120 Hz physics, exactly as REALM's own documentation specifies for DROID. Raising the
+        # rendering frequency to satisfy the isosurface assert is no longer necessary now that
+        # ENABLE_HQ_RENDERING is off, and it was never harmless: headless OmniGibson requires
+        # rendering_dt == sim_step_dt, so it dragged the policy rate up with it.
     )
     og.log.info(f"DEBUG: Env created: {time.perf_counter() - start:.4f}s")
 
