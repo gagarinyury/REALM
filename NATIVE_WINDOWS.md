@@ -439,6 +439,50 @@ without particle systems — which is what `set_rendering_mode` now does for
 `rt`. No REALM_DROID10 task contains fluids or particles, so the isosurface
 path is dead weight here regardless.
 
+### 9. The repaired gripper does not close (open issue)
+
+Section 3 restores REALM's own `droid.usd` by breaking the parallelogram loop
+and re-coupling the gripper with `PhysxMimicJointAPI`, the way the stock
+Robotiq assets in BEHAVIOR-1K do it. The asset loads, the arm works, the
+wrist camera works — and the fingers never close. Measured by driving the
+gripper from a script, with no policy in the loop:
+
+```
+command CLOSE:  outer knuckles 0 -> 0.7854 rad   inner knuckles 0.005 -> 0.019
+finger pads:    7.94 cm apart open  ->  7.98 cm apart "closed"
+a cube suspended exactly between the pads: no finger contact for 40 steps
+```
+
+The driven joints travel their whole range, the mimicked ones do not follow,
+and so nothing ever grips. Every rollout therefore stalls at the GRASP stage
+regardless of the policy, which is exactly what both π0-FAST and π0.5 do.
+
+Mimic joints themselves are fine in this build: the stock `ur5e`, carrying
+the same 2F-85 and the same scheme, closes correctly under an identical probe
+(followers reach 0.78 rad). Compared line by line against it — applied API
+schemas, joint axis, limits, body pairs, drive placement — our asset matches,
+with one real discrepancy since fixed: the sides are mirrored, and the stock
+`right_inner_knuckle_joint` carries gearing `+1` with limits `[-45, 0]` where
+we had copied the left side's `-1` and `[0, 45]`. Correcting it alone did not
+change the outcome.
+
+Two further observations, both unresolved:
+
+- Driving the inner knuckles directly (restore `DriveAPI`, list them in
+  `finger_joint_names` so `gripper_control_idx` picks them up) does move them
+  — but only once the mimic API is removed from those joints. A driven joint
+  that also carries a mimic constraint stays put: the constraint wins. With
+  mimic dropped the joints travel about a third of their range, in the
+  direction opposite to their own limits, and scene loading then hangs.
+- The outer branch differs structurally: `outer_knuckle -> outer_finger` is a
+  `RevoluteJoint` with gearing `0.01` in the stock asset and a `FixedJoint` in
+  ours. A welded outer branch may be blocking the pads mechanically.
+
+Useful when investigating this: the asset is binary, so every question costs a
+simulator start, while the reference (`models/ur5e/usd/ur5e.usda`) is text.
+`Usd.Stage.Open(...).Export("droid_flat.usda")` under the Isaac interpreter
+turns ours into text once and makes the comparison a grep.
+
 ## Status
 
 Full pipeline verified working end-to-end natively on Windows (RTX 5080,
@@ -466,12 +510,15 @@ returning zeros.
 
 With all of them addressed, π0-FAST drives the arm for the first time on
 this fork: on `put_green_block_into_bowl` (Default, 800 steps) it clears the
-REACH stage at step 290, brings the gripper onto the block and commands a
-close for 184 of the 800 steps, with the fingers travelling their full
-range. The block is not retained, so progression stops at 0.2 and the run
-scores no binary success. Single-task numbers are not comparable to the
-0.61 in REALM's README, which averages tiered progression over all ten
-tasks — but the stand now measures something rather than nothing.
+REACH stage at step 290 and brings the gripper onto the block, commanding a
+close for 184 of the 800 steps. Progression stops at 0.2.
+
+**It stops there for a reason on our side, not the model's — see section 9.
+The gripper never actually closes.** π0.5 reaches exactly the same ceiling on
+the same task, holding the close command for up to nine seconds at a time.
+No number from this fork is a statement about either model yet, and none is
+comparable to the 0.61 in REALM's README (which in any case averages tiered
+progression over all ten tasks).
 
 ## Attribution
 

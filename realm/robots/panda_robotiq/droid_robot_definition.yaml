@@ -104,7 +104,21 @@ manipulation:
   # driven from the outer knuckles instead. gripper_control_idx is derived from
   # this list in robot.py::gripper_control_idx.
   finger_joint_names:
-    "0": ["left_outer_knuckle_joint", "right_outer_knuckle_joint"]
+    # NOTE: patched -- four joints, not two. The inner knuckles carry the finger pads, and
+    # after untangle_droid_gripper.py they were left driveless, relying on PhysxMimicJointAPI
+    # to follow the outer knuckles. Measured 09.08.2026: they do not follow. With a command to
+    # close, the outer knuckles travel their full 0.785 rad while the inner ones move from
+    # 0.005 to 0.019, and the pads stay 7.8 cm apart -- the gripper never actually closes, so
+    # no grasp is ever registered and every rollout stalls at the GRASP stage.
+    # Mimic itself works in this build (stock ur5e closes correctly), and schemas, limits,
+    # axes, body links and gearing signs were compared against it line by line and match.
+    # Rather than keep guessing, the inner knuckles are now driven directly -- which is what
+    # droid_arm.py assumed all along with `_gripper_control_idx = th.arange(7, 11)`.
+    # gripper_control_idx is derived from THIS list (robot.py::gripper_control_idx), and the
+    # engine asserts that every driven joint belongs to a controller, so the list and the
+    # DriveAPIs in the asset must agree.
+    "0": ["left_outer_knuckle_joint", "right_outer_knuckle_joint",
+          "left_inner_knuckle_joint", "right_inner_knuckle_joint"]
   teleop_rotation_offset:
     "0": [-1, 0, 0, 0]
 

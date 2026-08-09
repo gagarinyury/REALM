@@ -62,30 +62,37 @@ SUPPORTED_PERTURBATIONS = [
 
 
 def set_sim_config(rendering_mode=None, robot="DROID"):
-    if robot == "WidowX": # TODO: just read this from the yamls...
-        gm.DEFAULT_SIM_STEP_FREQ = 5
-        gm.DEFAULT_RENDERING_FREQ = 5
-    elif "UR5" in robot:
-        gm.DEFAULT_SIM_STEP_FREQ = 30
-        gm.DEFAULT_RENDERING_FREQ = 30
-    else:
-        gm.DEFAULT_SIM_STEP_FREQ = 15
-        gm.DEFAULT_RENDERING_FREQ = 15
+    # NOTE: patched -- wrapped in `gm.unlocked()`. OmniGibson 3.9.1 locks a macro once it has
+    # been read, so a second call to this function raises "Cannot set attribute
+    # DEFAULT_SIM_STEP_FREQ in MacroDict, it has already been used". That makes evaluating
+    # several tasks from one process impossible: the first task succeeds and every later one
+    # dies before its scene is even built. The engine offers this context for exactly the case
+    # of knowingly overwriting a macro, and it restores the previous lock state on exit.
+    with gm.unlocked():
+        if robot == "WidowX": # TODO: just read this from the yamls...
+            gm.DEFAULT_SIM_STEP_FREQ = 5
+            gm.DEFAULT_RENDERING_FREQ = 5
+        elif "UR5" in robot:
+            gm.DEFAULT_SIM_STEP_FREQ = 30
+            gm.DEFAULT_RENDERING_FREQ = 30
+        else:
+            gm.DEFAULT_SIM_STEP_FREQ = 15
+            gm.DEFAULT_RENDERING_FREQ = 15
 
-    gm.DEFAULT_PHYSICS_FREQ = 120
-    gm.ENABLE_TRANSITION_RULES = False # this needs to be off to avoid bug with sludge state during collision: https://github.com/StanfordVL/BEHAVIOR-1K/issues/1201
-    gm.ENABLE_OBJECT_STATES = True # this needs to be on because push_switch task usees the ToggledOn state
-    gm.RENDER_VIEWER_CAMERA=False
-    # NOTE: patched -- upstream sets this to True for "rt" and "pt". On OmniGibson 3.9.1 that
-    # is no longer possible together with the DROID rate: the flag now also switches on the
-    # isosurface path, which asserts a rendering frequency of at least 60 FPS, while headless
-    # operation asserts rendering_dt == sim_step_dt. The DROID checkpoints are trained at 15 Hz,
-    # so the three constraints cannot hold at once. On 1.1.1, the version REALM targets, the flag
-    # only toggled RTX settings and no such assert existed (compare simulator.py at tag v1.1.1).
-    # Of everything the flag still guards on 3.9.1, only DLSS "Realism" affects a scene without
-    # particle systems -- and set_rendering_mode() restores that for "rt". The isosurface path
-    # itself is dead weight here: no REALM_DROID10 task contains fluids or particles.
-    gm.ENABLE_HQ_RENDERING = False
+        gm.DEFAULT_PHYSICS_FREQ = 120
+        gm.ENABLE_TRANSITION_RULES = False # this needs to be off to avoid bug with sludge state during collision: https://github.com/StanfordVL/BEHAVIOR-1K/issues/1201
+        gm.ENABLE_OBJECT_STATES = True # this needs to be on because push_switch task usees the ToggledOn state
+        gm.RENDER_VIEWER_CAMERA=False
+        # NOTE: patched -- upstream sets this to True for "rt" and "pt". On OmniGibson 3.9.1 that
+        # is no longer possible together with the DROID rate: the flag now also switches on the
+        # isosurface path, which asserts a rendering frequency of at least 60 FPS, while headless
+        # operation asserts rendering_dt == sim_step_dt. The DROID checkpoints are trained at 15 Hz,
+        # so the three constraints cannot hold at once. On 1.1.1, the version REALM targets, the flag
+        # only toggled RTX settings and no such assert existed (compare simulator.py at tag v1.1.1).
+        # Of everything the flag still guards on 3.9.1, only DLSS "Realism" affects a scene without
+        # particle systems -- and set_rendering_mode() restores that for "rt". The isosurface path
+        # itself is dead weight here: no REALM_DROID10 task contains fluids or particles.
+        gm.ENABLE_HQ_RENDERING = False
 
     seed = 1234
     random.seed(seed)

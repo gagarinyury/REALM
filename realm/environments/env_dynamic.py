@@ -111,6 +111,33 @@ def _panda_fk(q):
     return m[:3, 3].copy(), _R.from_matrix(m[:3, :3]).as_quat()
 
 
+_REALM_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def _resolve_docker_asset_paths(node):
+    """NOTE: patched -- rewrite the container-absolute asset paths baked into the task YAMLs.
+
+    The drawer tasks reference their cabinet as
+    `/app/custom_assets/impact_drawer/usd/cabinet.usd`, which is where REALM's own Dockerfile
+    mounts the repository. Run outside the container and OmniGibson raises FileNotFoundError
+    deep inside USDObject.check_hash -- and then the process hangs rather than exiting, so a
+    batch run loses whatever time budget it was given rather than failing fast. The asset
+    itself ships with the repository, only the prefix is wrong.
+
+    Mutates the parsed config in place; any string starting with `/app/` is re-anchored to the
+    repository root, mirroring the same fix already applied to `config_path` in eval.py.
+    """
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if isinstance(value, str) and value.startswith("/app/"):
+                node[key] = os.path.join(_REALM_ROOT, value[len("/app/"):])
+            else:
+                _resolve_docker_asset_paths(value)
+    elif isinstance(node, list):
+        for item in node:
+            _resolve_docker_asset_paths(item)
+
+
 def set_rendering_mode(rendering_mode):
     carb_settings = lazy.carb.settings.get_settings()
     if rendering_mode == "pt":
@@ -278,6 +305,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
     def construct_environment_config(self):
         cfg = dict()
         task_cfg = yaml.load(open(f"{self.config_path}/tasks/{self.task_cfg_path}", "r"), Loader=yaml.FullLoader)
+        _resolve_docker_asset_paths(task_cfg)
         cfg.update(task_cfg)
 
         # ---------------------------------------- scene config ----------------------------------------
