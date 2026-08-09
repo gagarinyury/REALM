@@ -39,10 +39,11 @@ default_controllers:
 # only resolved inside their Docker image's Omniverse cache).
 usd_path: "models/droid/usd/droid.usd"
 
-# 13 DOF after untangle_droid_gripper.py: 7 arm revolute + 4 knuckle revolute
-# + 2 inner-finger revolute. The remaining 7 joints in the asset are fixed
-# (panda_joint8, camera_joint, panda_coupling_joint, panda_table_joint,
-# coupling_gripper_base_joint, and both outer_finger_knuckle joints).
+# 13 DOF: 7 arm revolute + 4 knuckle revolute + 2 finger revolute. The finger pads are welded to their
+# knuckles and all four knuckles are driven from one command -- see NATIVE_WINDOWS.md
+# section 9: the Robotiq parallelogram could not be made to work through mimic joints
+# on this asset, so gripper parallelism is a property of control here, not of the
+# mechanism. The remaining joints in the asset are fixed.
 # Arm values are REALM's own, from droid_arm.py::_default_robot_model_joint_pos;
 # the gripper opens at zero.
 default_joint_pos: [
@@ -104,19 +105,12 @@ manipulation:
   # driven from the outer knuckles instead. gripper_control_idx is derived from
   # this list in robot.py::gripper_control_idx.
   finger_joint_names:
-    # NOTE: patched -- four joints, not two. The inner knuckles carry the finger pads, and
-    # after untangle_droid_gripper.py they were left driveless, relying on PhysxMimicJointAPI
-    # to follow the outer knuckles. Measured 09.08.2026: they do not follow. With a command to
-    # close, the outer knuckles travel their full 0.785 rad while the inner ones move from
-    # 0.005 to 0.019, and the pads stay 7.8 cm apart -- the gripper never actually closes, so
-    # no grasp is ever registered and every rollout stalls at the GRASP stage.
-    # Mimic itself works in this build (stock ur5e closes correctly), and schemas, limits,
-    # axes, body links and gearing signs were compared against it line by line and match.
-    # Rather than keep guessing, the inner knuckles are now driven directly -- which is what
-    # droid_arm.py assumed all along with `_gripper_control_idx = th.arange(7, 11)`.
-    # gripper_control_idx is derived from THIS list (robot.py::gripper_control_idx), and the
-    # engine asserts that every driven joint belongs to a controller, so the list and the
-    # DriveAPIs in the asset must agree.
+    # Two driven joints, as in every stock Robotiq 2F-85 in BEHAVIOR-1K: the pads are led from
+    # the outer knuckles and the rest of the linkage follows through PhysxMimicJointAPI.
+    # Driving the inner knuckles instead was tried on 09.08.2026 and reverted: a joint carrying
+    # both a drive and a mimic constraint does not move at all, and removing mimic to drive them
+    # made scene loading hang. See NATIVE_WINDOWS.md section 9 -- the pads still do not close,
+    # and that is the open problem.
     "0": ["left_outer_knuckle_joint", "right_outer_knuckle_joint",
           "left_inner_knuckle_joint", "right_inner_knuckle_joint"]
   teleop_rotation_offset:

@@ -30,6 +30,8 @@ robots:
     # the loaded articulation. REALM's env_dynamic.py sizes reset_joint_pos from this key,
     # filling [:7]. For the stock franka_robotiq fallback the value is 15 -- see
     # DROID_franka_robotiq.yaml.
+    # 11 after simplifying the gripper: pads welded to the knuckles, all four knuckles
+    # driven. Keep in sync with default_joint_pos in models/droid/droid.yaml.
     dof: 13
     obs_modalities: ["rgb", "proprio"]
     proprio_obs: ["joint_qpos"]

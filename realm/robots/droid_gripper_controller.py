@@ -201,14 +201,26 @@ class MultiFingerGripperController(GripperController):
                 else self._closed_qpos
             )  # (ctrl_dim,)
             u = th.where(should_open[:, None], open_limit, closed_limit)  # (N, ctrl_dim)
-            # NOTE: removed here -- REALM's original code additionally did
-            # `u[2:] = joint_pos[:2] / 0.05 * 0.785` to manually drive the *outer* finger
-            # joints of its custom DROID gripper, whose controller spanned 4 DOFs. We run the
-            # stock franka_robotiq model, whose definition exposes 2 controlled finger joints
-            # (`left/right_outer_knuckle_joint`); the remaining Robotiq linkage joints are not
-            # driven by this controller. That line would therefore index out of bounds, and the
-            # coupling it emulated is handled by the model itself. See the thesis Methodology
-            # note on using the stock franka_robotiq asset instead of REALM's droid.usd.
+
+            # NOTE: patched -- the coupling between leading and trailing knuckles is done HERE,
+            # by hand, and this is REALM's own design. Upstream wrote
+            # `u[2:] = joint_pos[:2] / 0.05 * 0.785`: a controller spanning four DOFs, whose
+            # trailing joints are commanded from the measured position of the leading two.
+            #
+            # That line was dropped while we were running the stock franka_robotiq (two
+            # controlled joints, coupling handled by the asset's own mimic joints). Returning
+            # to REALM's droid.usd should have brought it back and did not, which is why the
+            # gripper never closed: mimic does not act on this asset (measured -- the pads stay
+            # 7.9 cm apart through a full close command), and the manual coupling that was
+            # written to replace it was switched off.
+            #
+            # The scale factor is gone on purpose. Upstream's leading joints were prismatic and
+            # measured in metres (0.05 m of finger travel mapped onto 0.785 rad); after the
+            # asset repair ours are revolute over the same 0..0.785 rad as the trailing ones,
+            # so the position carries over directly.
+            if u.shape[1] >= 4:
+                u = u.clone()
+                u[:, 2:] = joint_pos[:, :2]
         else:
             # Use continuous signal. Make sure to go from command to control dim.
             u = target * th.ones(self.control_dim) if target.shape[1] == 1 else target
