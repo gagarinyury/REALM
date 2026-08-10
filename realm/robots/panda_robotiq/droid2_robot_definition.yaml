@@ -1,0 +1,40 @@
+# DROID, собранный штатным импортёром из URDF (см. realm/robots/panda_robotiq/IMPORT_FROM_URDF.md).
+#
+# Отличие от модели droid: гриппер здесь без mimic-связей, ПРИВОД СТОИТ НА ВСЕХ ШЕСТИ
+# суставах, и контроллер ведёт каждый палец сам — как предписывает документация OmniGibson
+# (docs/tutorials/custom_robot_import.md). Прежняя конструкция полагалась на mimic, а
+# импортёр не создаёт на таких суставах привод: ведомый палец остаётся неприводным,
+# не дотягивает за ведущим и пружинит.
+
+raw_controller_order: [arm_0, gripper_0]
+
+default_controllers:
+  arm_0: JointController
+  gripper_0: MultiFingerGripperController
+
+usd_path: objects/robot/droid2/usd/droid2.usda
+
+# 7 суставов руки (поза из droid_arm.py) + 6 суставов гриппера, раскрытый
+default_joint_pos: [
+  0.143628523, -0.597331285, 0.00201173499, -2.38619041,
+  0.267941624, 1.97807848, -0.0898026153,
+  0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+]
+
+manipulation:
+  arm_link_names:
+    "0": ["panda_link0", "panda_link1", "panda_link2", "panda_link3", "panda_link4", "panda_link5", "panda_link6", "panda_link7"]
+  arm_joint_names:
+    "0": ["panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4", "panda_joint5", "panda_joint6", "panda_joint7"]
+  eef_link_names:
+    "0": "panda_link_ee"
+  finger_link_names:
+    "0": ["robotiq_2f_85_left_pad", "robotiq_2f_85_right_pad"]
+  finger_joint_names:
+    # Все шесть суставов гриппера приводные — их ведёт контроллер напрямую.
+    # Порядку соответствуют closed_qpos/open_qpos в realm/config/robots/DROID2.yaml.
+    "0": ["robotiq_2f_85_left_driver_joint", "robotiq_2f_85_right_driver_joint",
+          "robotiq_2f_85_left_follower_joint", "robotiq_2f_85_right_follower_joint",
+          "robotiq_2f_85_left_spring_link_joint", "robotiq_2f_85_right_spring_link_joint"]
+  teleop_rotation_offset:
+    "0": [-1, 0, 0, 0]
