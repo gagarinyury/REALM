@@ -494,7 +494,16 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         return base_cam_pos, base_cam_rot
 
     def update_robot_physics(self):
-        if not self.robot_name == "DROID":
+        # NOTE: patched -- условие было `self.robot_name == "DROID"`, то есть привязано к ИМЕНИ
+        # ФАЙЛА конфига. Любой другой конфиг того же робота (DROID_franka_robotiq.yaml,
+        # DROID_ee_control.yaml и прочие) молча проходил мимо всех правок физики: суставы руки
+        # оставались без заданных friction и armature, треугольные коллизии — без замены на
+        # выпуклые оболочки. Наружу это не выходит ничем: сцена грузится, прогон идёт, просто
+        # рука ведёт себя иначе, чем задумано конфигом. Обнаружено 10.08.2026, когда первые
+        # прогоны на стоковом franka_robotiq шли с настройками, которых в них не было.
+        # Теперь условие — по наличию самих настроек: есть в конфиге, значит применяем.
+        cfg_robot = self.cfg["robots"][0]
+        if not all(k in cfg_robot for k in ("friction", "armature")):
             return
 
         friction = np.array(self.cfg["robots"][0]["friction"])
@@ -521,6 +530,37 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
                         approx = prim.GetAttribute("physxMeshCollision:approximation").Get()
                         if approx in ["none", "meshSimplification"]:
                             prim.GetAttribute("physxMeshCollision:approximation").Set("convexHull")
+
+            # NOTE: patched -- трение колодок задаётся здесь, а не штатным параметром робота.
+            #
+            # ЗАЧЕМ ВООБЩЕ. REALM работает в grasping_mode="physical": предмет держат только
+            # контактное трение и усилие пальцев, вспомогательного захвата нет. Собственный
+            # ассет REALM (droid.usd) объявляет на колодках материал с трением 0.8 и
+            # frictionCombineMode=max; стоковый franka_robotiq не объявляет на пальцах
+            # физического материала вовсе. Измерено 10.08.2026: задача 0 доходила до
+            # LIFT_SLIGHT (0.4) и роняла предмет трижды при нулевых столкновениях.
+            #
+            # ПОЧЕМУ НЕ ШТАТНЫМ ПУТЁМ. У робота есть параметры finger_static_friction /
+            # finger_dynamic_friction (robot.py:355-364), но в OmniGibson 3.9.1 этот путь
+            # уронил загрузку: usd_object.py:391 создаёт PhysicsMaterial, конструктор которого
+            # (isaacsim.core.api.materials.physics_material) пишет в USD напрямую, и
+            # собственная стража движка выбрасывает
+            #   RuntimeError: USD edit detected outside of og.sim.editing_usd() context!
+            # То есть штатный параметр в этой версии просто не работает. Здесь тот же материал
+            # создаётся и привязывается внутри разрешённого контекста.
+            finger_friction = self.cfg["robots"][0].get("finger_friction")
+            if finger_friction is not None:
+                arm = self.robot.default_arm
+                mat = lazy.isaacsim.core.api.materials.physics_material.PhysicsMaterial(
+                    prim_path=f"{self.robot.prim_path}/Looks/realm_finger_physics_mat",
+                    name="realm_finger_physics_mat",
+                    static_friction=float(finger_friction),
+                    dynamic_friction=float(finger_friction),
+                )
+                for link_name in self.robot.finger_link_names[arm]:
+                    for msh in self.robot.links[link_name].collision_meshes.values():
+                        msh.apply_physics_material(mat)
+                og.log.info(f"[REALM] трение колодок {finger_friction} на {self.robot.finger_link_names[arm]}")
 
     def apply_scene_fixes_from_cfg(self):
         spawn_cfg = yaml.load(open(f"{self.config_path}/scenes/scenes.yaml", "r"), Loader=yaml.FullLoader)

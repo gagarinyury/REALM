@@ -29,15 +29,17 @@ robots:
     friction: [ 0.05, 0.10, 0.05, 0.10, 0.75, 0.425, 0.20 ]
     armature: [ 0.25, 0.50, 0.25, 0.50, 0.25, 0.150, 0.00 ]
     # NOTE: patched -- трение колодок. REALM работает в grasping_mode="physical", то есть
-    # предмет держится ТОЛЬКО контактным трением и усилием пальцев; никакого вспомогательного
-    # захвата нет (robot.py:195). Эталонный droid.usd объявляет на колодках физический
-    # материал со static/dynamic friction 0.8 и frictionCombineMode=max; у стокового
-    # franka_robotiq физического материала на пальцах нет вовсе, и действует умолчание.
-    # Первый прогон это и показал: задача дошла до LIFT_SLIGHT (0.4), но кубик выпал трижды
-    # (object_drops=3) при нулевых столкновениях. Значения ниже сняты с эталона, а не
-    # подобраны; механизм задания — штатные параметры робота (robot.py:135-136, 356-362).
-    finger_static_friction: 0.8
-    finger_dynamic_friction: 0.8
+    # предмет держится ТОЛЬКО контактным трением и усилием пальцев; вспомогательного захвата
+    # нет (robot.py:195). Эталонный droid.usd объявляет на колодках материал с трением 0.8 и
+    # frictionCombineMode=max; у стокового franka_robotiq физического материала на пальцах нет
+    # вовсе. Первый прогон это и показал: задача дошла до LIFT_SLIGHT (0.4), но предмет выпал
+    # трижды (object_drops=3) при нулевых столкновениях.
+    #
+    # Ключ СВОЙ, а не штатные finger_static_friction / finger_dynamic_friction: тот путь в
+    # OmniGibson 3.9.1 роняет загрузку (usd_object.py:391 создаёт PhysicsMaterial мимо
+    # собственной стражи движка -- "USD edit detected outside of og.sim.editing_usd()").
+    # Применяется в env_dynamic.py::update_robot_physics, внутри разрешённого контекста.
+    finger_friction: 0.8
     controller_name: "CustomJointController"
     controller_config:
         arm_0:
