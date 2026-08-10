@@ -28,6 +28,16 @@ robots:
     action_type: "continuous"
     friction: [ 0.05, 0.10, 0.05, 0.10, 0.75, 0.425, 0.20 ]
     armature: [ 0.25, 0.50, 0.25, 0.50, 0.25, 0.150, 0.00 ]
+    # NOTE: patched -- трение колодок. REALM работает в grasping_mode="physical", то есть
+    # предмет держится ТОЛЬКО контактным трением и усилием пальцев; никакого вспомогательного
+    # захвата нет (robot.py:195). Эталонный droid.usd объявляет на колодках физический
+    # материал со static/dynamic friction 0.8 и frictionCombineMode=max; у стокового
+    # franka_robotiq физического материала на пальцах нет вовсе, и действует умолчание.
+    # Первый прогон это и показал: задача дошла до LIFT_SLIGHT (0.4), но кубик выпал трижды
+    # (object_drops=3) при нулевых столкновениях. Значения ниже сняты с эталона, а не
+    # подобраны; механизм задания — штатные параметры робота (robot.py:135-136, 356-362).
+    finger_static_friction: 0.8
+    finger_dynamic_friction: 0.8
     controller_name: "CustomJointController"
     controller_config:
         arm_0:
