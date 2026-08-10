@@ -580,9 +580,15 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             for link_name in self.robot.finger_link_names[arm]:
                 for msh in self.robot.links[link_name].collision_meshes.values():
                     msh.apply_physics_material(finger_material)
-            og.log.info(
-                f"[REALM] трение колодок {self.cfg['robots'][0]['finger_friction']} "
-                f"на {self.robot.finger_link_names[arm]}"
+            # print, а не og.log.info: сообщения этого уровня в лог прогона не попадают —
+            # проверено на прогонах 10.08.2026, где не нашлось ни одной строки og.log.info,
+            # включая авторскую отладочную в eval.py. Подтверждение того, что настройка
+            # применилась, должно быть видно, иначе её отсутствие ничем себя не проявит.
+            mode = finger_material.prim.GetAttribute("physxMaterial:frictionCombineMode").Get()
+            print(
+                f"[REALM] трение колодок {self.cfg['robots'][0]['finger_friction']}, "
+                f"режим сложения '{mode}', звенья {self.robot.finger_link_names[arm]}",
+                flush=True,
             )
 
     def apply_scene_fixes_from_cfg(self):
