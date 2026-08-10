@@ -549,18 +549,41 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
             # То есть штатный параметр в этой версии просто не работает. Здесь тот же материал
             # создаётся и привязывается внутри разрешённого контекста.
             finger_friction = self.cfg["robots"][0].get("finger_friction")
+            finger_material = None
             if finger_friction is not None:
-                arm = self.robot.default_arm
-                mat = lazy.isaacsim.core.api.materials.physics_material.PhysicsMaterial(
+                finger_material = lazy.isaacsim.core.api.materials.physics_material.PhysicsMaterial(
                     prim_path=f"{self.robot.prim_path}/Looks/realm_finger_physics_mat",
                     name="realm_finger_physics_mat",
                     static_friction=float(finger_friction),
                     dynamic_friction=float(finger_friction),
                 )
-                for link_name in self.robot.finger_link_names[arm]:
-                    for msh in self.robot.links[link_name].collision_meshes.values():
-                        msh.apply_physics_material(mat)
-                og.log.info(f"[REALM] трение колодок {finger_friction} на {self.robot.finger_link_names[arm]}")
+                # Режим сложения трений. Конструктор PhysicsMaterial принимает только
+                # static_friction / dynamic_friction / restitution, поэтому атрибут ставится
+                # прямо на prim. Значение — из эталонного droid.usd, где на колодках стоит
+                # physxMaterial:frictionCombineMode = "max". Разница не косметическая: при
+                # умолчании (average) трение колодок 0.8 в паре с предметом 0.5 даёт около
+                # 0.65, при max — 0.8, то есть держит заметно сильнее.
+                mat_prim = finger_material.prim
+                attr = mat_prim.GetAttribute("physxMaterial:frictionCombineMode")
+                if not attr.IsValid():
+                    attr = mat_prim.CreateAttribute(
+                        "physxMaterial:frictionCombineMode", lazy.pxr.Sdf.ValueTypeNames.Token
+                    )
+                attr.Set("max")
+
+        # Привязка материала — уже ЗА пределами контекста: apply_physics_material открывает
+        # og.sim.editing_usd() сам, а вложенные контексты движок запрещает
+        # ("Cannot nest editing_usd() contexts"). Создание же материала, наоборот, обязано
+        # быть внутри — конструктор PhysicsMaterial пишет в USD напрямую.
+        if finger_material is not None:
+            arm = self.robot.default_arm
+            for link_name in self.robot.finger_link_names[arm]:
+                for msh in self.robot.links[link_name].collision_meshes.values():
+                    msh.apply_physics_material(finger_material)
+            og.log.info(
+                f"[REALM] трение колодок {self.cfg['robots'][0]['finger_friction']} "
+                f"на {self.robot.finger_link_names[arm]}"
+            )
 
     def apply_scene_fixes_from_cfg(self):
         spawn_cfg = yaml.load(open(f"{self.config_path}/scenes/scenes.yaml", "r"), Loader=yaml.FullLoader)
