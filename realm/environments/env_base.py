@@ -183,8 +183,35 @@ class RealmEnvironmentBase:
 
     # ============================== [SUCCESS METRICS] ==============================
     def is_grasping(self, obs, candidate_obj):
-        finger_joints = obs[self.robot.name]['proprio'][7:9].cpu().numpy()
-        is_either_finger_closing = (0.45 - finger_joints[0] > 1e-3 or 0.45 - finger_joints[1] > 1e-3)
+        # NOTE: patched -- upstream read `proprio[7:9]` and tested `0.45 - q > 1e-3`. On REALM's
+        # own DROID those two entries are the PRISMATIC finger joints with a 0..0.05 m stroke,
+        # so the test is `0.45 - 0.05 = 0.4 > 0`: tautologically true, dead code. A grasp there
+        # is decided purely by the two contacts below.
+        #
+        # untangle_droid_gripper.py deletes those prismatic joints -- they are what closes the
+        # parallelogram -- and control moves onto the revolute knuckles, whose stroke is
+        # 0..0.785 RAD. The same constant then stops being a tautology and becomes a filter on
+        # jaw opening, with the sign pointing the wrong way. Measured 10.08.2026 with
+        # tests/gripper_bench.py:
+        #
+        #     jaws open   proprio[7:9] = [0.0000, 0.0000] -> condition True
+        #     jaws closed proprio[7:9] = [0.7774, 0.5414] -> condition False
+        #
+        # i.e. GRASP could never be awarded, and task_progression stalled at 0.2 (REACH only)
+        # regardless of what the gripper actually did. Four rollouts with progressively better
+        # gripper physics all returned exactly 0.2, which is what led here.
+        #
+        # Restoring the upstream SEMANTICS rather than the upstream constant: the clause asks
+        # "are the fingers driving towards closure", and the honest way to answer it, for any
+        # gripper, is to compare against the joints' own limits, taken from the robot instead
+        # of hardcoded indices (eval.py:172 already resolves them this way).
+        idx = self.robot.gripper_control_idx[self.robot.default_arm]
+        finger_joints = obs[self.robot.name]['proprio'][idx].cpu().numpy()
+        lower = self.robot.joint_lower_limits[idx].cpu().numpy()
+        upper = self.robot.joint_upper_limits[idx].cpu().numpy()
+        # доля хода до сомкнутого положения; для этого гриппера сомкнуто = верхний предел
+        closed_frac = (finger_joints - lower) / np.maximum(upper - lower, 1e-9)
+        is_either_finger_closing = bool((closed_frac > 0.1).any())
         # NOTE: patched for newer OmniGibson (ContactBodies object state was removed upstream;
         # reimplemented using RigidContactAPI.is_in_contact, the same low-level API that the
         # current Touching object state uses internally).
