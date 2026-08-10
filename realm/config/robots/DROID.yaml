@@ -31,6 +31,19 @@ robots:
     # filling [:7]. For the stock franka_robotiq fallback the value is 15 -- see
     # DROID_franka_robotiq.yaml.
     dof: 13
+    # Robotiq 2F-85 смыкается при РОСТЕ угла knuckle: пределы ведущих суставов 0..45 град,
+    # где ноль — раскрытое положение (см. default_joint_pos: «the gripper opens at zero»).
+    # Умолчание движка — grasping_direction="lower", то есть «закрыто = нижний предел»;
+    # оно верно для ПРИЗМАТИЧЕСКИХ суставов, которыми управлял droid_arm.py
+    # (_gripper_control_idx = arange(7, 11), ход 0..0.05 м, ноль = сомкнуто).
+    # untangle_droid_gripper.py эти суставы удаляет — они замыкают параллелограмм — и
+    # переводит управление на вращательные, где смысл нижнего предела противоположный.
+    # Без этой строки команда «сжать» раскрывает губки до упора, поза ведущего сустава
+    # застывает в нуле, наблюдение модели перестаёт меняться, и политика повторяет одну
+    # и ту же команду весь эпизод (измерено 10.08.2026: одно уникальное значение против
+    # восьми на стоке). Механизм: robot.py:3450, "inverted": grasping_direction == "upper".
+    # Равноценная альтернатива — closed_qpos/open_qpos в controller_config.gripper_0.
+    grasping_direction: "upper"
     obs_modalities: ["rgb", "proprio"]
     proprio_obs: ["joint_qpos"]
     control_freq: 15

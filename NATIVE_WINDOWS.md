@@ -501,6 +501,89 @@ simulator start, while the reference (`models/ur5e/usd/ur5e.usda`) is text.
 `Usd.Stage.Open(...).Export("droid_flat.usda")` under the Isaac interpreter
 turns ours into text once and makes the comparison a grep.
 
+### 10. Reproducing this fork on a clean machine: four things that are not in it
+
+Found on 10.08.2026 by deploying the fork onto a rented machine (RunPod, RTX A6000,
+image `stanfordvl/behavior:3.9.1`, Isaac Sim 5.1) — i.e. by doing what a reader of this
+repository would do. None of the four failures below reproduce on the development machine,
+because its state accumulated by hand over a week.
+
+**a. A patched engine file that lived only on the dev machine.**
+`Robot._generate_controller_config` looks the controller name up in
+`self._default_controller_config[group]`, and that dict is assembled *exclusively* from the
+engine's own built-in sets (`_default_arm_joint_controller_configs`, `gripper_pj_configs`, ...)
+keyed by their own `["name"]`. It has nothing to do with `REGISTERED_CONTROLLERS`: registering
+a class there lets the engine *construct* it, but does not make it *selectable by name*. So
+REALM's `CustomJointController` / `CustomGripperController` raise `KeyError`. The exception is
+thrown inside an Isaac Sim C++ callback, so the process dies as
+`Segmentation fault (core dumped)` with no traceback at all.
+Now shipped as `realm/misc/robot_controller_name_fallback_og391.patch`.
+
+**b. A config that contradicted the repair scripts.**
+`untangle_droid_gripper.py` removes the drive from the four follower joints and slaves them
+with `PhysxMimicJointAPI`, exactly as every stock Robotiq in BEHAVIOR-1K does. But
+`finger_joint_names` still listed those four joints as controlled — a leftover from a
+hypothesis abandoned on 09.08. The engine refuses:
+`AssertionError: Controllers should only control driveable joints!` (again surfacing as a
+segfault). Fixed: the list is back to the two driven `outer_knuckle` joints.
+
+**c. The gripper closing direction.**
+See section 11 below — this one changes results rather than preventing startup.
+
+**d. Environment facts that only a failed run reveals.**
+The dependency set from `.docker/realm_og391.Dockerfile` with the pins from
+`og391-constraints.txt` is mandatory (`numpy==1.26.0`, `torch==2.7.0+cu128`) — without it,
+`ModuleNotFoundError: mujoco`. Stock robot assets must carry a `VERSION` file >= 3.8.2, and
+placing our `models/droid` there *before* the download makes the downloader silently skip.
+The dataset archive unpacks *without* a top-level directory while the engine expects
+`{DATA_PATH}/behavior-1k-assets/`. Finally: 141485 small files on a network filesystem is a
+trap — unpacking ran at ~31 files/s and then hung in `request_wait_answer` (FUSE); on a local
+disk of the same machine, 150-320 files/s.
+
+### 11. The gripper command was inverted (found 10.08.2026)
+
+Symptom, spotted by watching a rollout video: the jaws never squeeze, and the robot nudges the
+cube sideways with the gripper body instead of grasping it.
+
+Measured, not inferred — from the rollout logs of this fork against those of the stock stack:
+
+| | stock 1.1.1 (task solved, 1.0) | this fork on 3.9.1 |
+|---|---|---|
+| distinct gripper commands over 800 steps | 8, range 0.000-0.653 | **1**, constant -0.006 |
+| driven joint travel | moves | **0.0000, std 0.0000 — never moves** |
+
+The chain: `robot.py:3450` builds `"inverted": self._grasping_direction == "upper"`; the
+parameter is unset, so the default `"lower"` applies; `MultiFingerGripperController` in
+`binary` mode therefore sends the joints to their **lower limit** on a close command. The
+driven `outer_knuckle` joints are limited to **0..45 deg** (read straight out of `droid.usd`),
+and zero is the *open* pose — as this repository's own
+`droid_robot_definition.yaml` states: "the gripper opens at zero". So "close" drives the jaws
+fully open, the joint parks at zero and stops moving, the `gripper_position` fed back to the
+policy stops changing, and the policy repeats one command for the rest of the episode.
+
+This was correct in the original: `droid_arm.py:146` sets `grasping_direction="lower"` with the
+comment "gripper grasps in the opposite direction", and for *prismatic* joints
+(`_gripper_control_idx = th.arange(7, 11)`, travel 0..0.05 m) zero really is the closed pose.
+`untangle_droid_gripper.py` deletes those prismatic joints — they are what closes the
+parallelogram — and moves control onto revolute knuckles, where the meaning of "lower limit"
+is the opposite. The parameter stayed; the mechanism changed.
+
+The engine's own documentation states the default plainly
+(`docs/omnigibson/controllers.md`): *"By default, <closed, open> is assumed to correspond to
+<q_lower_limit, q_upper_limit> for each joint"*. `grasping_direction` itself appears nowhere in
+the documentation — only at `robot.py:200`.
+
+Fix, one line in `realm/config/robots/DROID.yaml`: `grasping_direction: "upper"`. Note it does
+**not** belong in the robot definition YAML — `definition_schema.py` has no such field; it
+works because extra keys in the robot config are passed straight to the constructor
+(`docs/omnigibson/robots.md`). An equivalent alternative is `closed_qpos`/`open_qpos` in
+`controller_config.gripper_0`.
+
+`tests/gripper_bench.py` checks this in ~3 minutes without a policy server: it drives the
+gripper open, then closed, and prints every joint's travel plus the gap between the finger
+links. Any question about the gripper should go through it rather than through a 20-minute
+rollout — that cost is why six wrong hypotheses were tried before this one.
+
 ## Status
 
 Full pipeline verified working end-to-end natively on Windows (RTX 5080,

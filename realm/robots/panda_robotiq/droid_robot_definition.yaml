@@ -104,21 +104,21 @@ manipulation:
   # driven from the outer knuckles instead. gripper_control_idx is derived from
   # this list in robot.py::gripper_control_idx.
   finger_joint_names:
-    # NOTE: patched -- four joints, not two. The inner knuckles carry the finger pads, and
-    # after untangle_droid_gripper.py they were left driveless, relying on PhysxMimicJointAPI
-    # to follow the outer knuckles. Measured 09.08.2026: they do not follow. With a command to
-    # close, the outer knuckles travel their full 0.785 rad while the inner ones move from
-    # 0.005 to 0.019, and the pads stay 7.8 cm apart -- the gripper never actually closes, so
-    # no grasp is ever registered and every rollout stalls at the GRASP stage.
-    # Mimic itself works in this build (stock ur5e closes correctly), and schemas, limits,
-    # axes, body links and gearing signs were compared against it line by line and match.
-    # Rather than keep guessing, the inner knuckles are now driven directly -- which is what
-    # droid_arm.py assumed all along with `_gripper_control_idx = th.arange(7, 11)`.
-    # gripper_control_idx is derived from THIS list (robot.py::gripper_control_idx), and the
-    # engine asserts that every driven joint belongs to a controller, so the list and the
-    # DriveAPIs in the asset must agree.
-    "0": ["left_outer_knuckle_joint", "right_outer_knuckle_joint",
-          "left_inner_knuckle_joint", "right_inner_knuckle_joint"]
+    # Два ведущих сустава, как в каждом стоковом Robotiq 2F-85 в BEHAVIOR-1K.
+    # untangle_droid_gripper.py снимает привод с четырёх ведомых суставов и связывает их
+    # с ведущими через PhysxMimicJointAPI, поэтому перечислять их здесь НЕЛЬЗЯ: движок
+    # требует, чтобы каждый управляемый сустав имел привод, и падает с
+    # `AssertionError: Controllers should only control driveable joints!`
+    # (robot.py::_load_controllers) — причём падение прилетает как Segmentation fault,
+    # потому что исключение вылетает внутри C++ обратного вызова Isaac Sim.
+    #
+    # ИСТОРИЯ. 09.08.2026 список был расширен до четырёх суставов: казалось, что mimic не
+    # работает — ведомые не следовали за ведущими. Настоящей причиной был
+    # physxJoint:maxJointVelocity = 0.2 на ведомых (см. lift_gripper_velocity_clamp.py),
+    # приводы были откачены, а список — нет. Рассогласование вскрылось 10.08.2026 при
+    # развёртывании форка на чистой машине. gripper_control_idx строится именно отсюда
+    # (robot.py::gripper_control_idx).
+    "0": ["left_outer_knuckle_joint", "right_outer_knuckle_joint"]
   teleop_rotation_offset:
     "0": [-1, 0, 0, 0]
 
