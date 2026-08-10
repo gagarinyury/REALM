@@ -98,8 +98,8 @@ def pad_tilt(robot):
     out = {}
     for pad in pads:
         _, q = pad.get_position_orientation()
-        rel = T.quat2euler(T.quat_multiply(T.quat_inverse(bq), q))
-        out[pad.name.split(":")[-1]] = float(th.rad2deg(th.abs(rel).max()))
+        rel = th.rad2deg(T.quat2euler(T.quat_multiply(T.quat_inverse(bq), q)))
+        out[pad.name.split(":")[-1]] = [round(float(x), 1) for x in rel]
     return out
 
 

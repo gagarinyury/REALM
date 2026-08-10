@@ -1,0 +1,110 @@
+robots:
+  # REALM's original custom "DROID" robot Python class (realm/robots/droid_arm.py) was
+  # registered through OmniGibson 1.1.1's class registry, which no longer exists -- robots are
+  # now discovered by globbing `{gm.DATA_PATH}/*/models/<name>/<name>.yaml` (REGISTERED_ROBOTS
+  # in omnigibson/robots/__init__.py) and instantiated as `Robot(**robot_config)`.
+  #
+  # This configuration uses REALM's own droid.usd, registered as a data-driven model. The asset
+  # does not load as shipped -- its Robotiq 2F-85 is a true parallel linkage with closed loops,
+  # while the engine requires a strict articulation tree -- so it must first be passed through
+  # the repair scripts in realm/robots/panda_robotiq/ (see NATIVE_WINDOWS.md section 3):
+  #
+  #   relocalize_droid_refs.py    http references to Robotiq parts -> local copies
+  #   untangle_droid_gripper.py   break the loop, restore the coupling with mimic joints
+  #   align_droid_root.py         move the frame of reference onto the root link
+  #
+  # and installed as {gm.DATA_PATH}/omnigibson-robot-assets/models/droid/, with
+  # droid_robot_definition.yaml as models/droid/droid.yaml.
+  #
+  # Why bother, rather than using the stock franka_robotiq (kept in DROID_franka_robotiq.yaml):
+  # this is the actual asset REALM was calibrated against. The wrist camera sits on panda_link8
+  # as `gripper_link_camera` -- the viewpoint the pi0_fast_droid checkpoint was trained on --
+  # rather than on panda_link7 as `camera_link`, and the end-effector geometry is the original.
+  #
+  # CAVEAT for the thesis: the repair breaks the gripper's four-bar linkage and reproduces the
+  # jaw coupling with mimic constraints instead, as every stock Robotiq in BEHAVIOR-1K does.
+  # Parallelism of the jaws is therefore enforced by the solver rather than by geometry.
+  - name: "DROID"
+    model: "droid2"
+    # 13 DOF after the asset repair: 7 arm + 4 knuckle + 2 inner finger, verified against
+    # the loaded articulation. REALM's env_dynamic.py sizes reset_joint_pos from this key,
+    # filling [:7]. For the stock franka_robotiq fallback the value is 15 -- see
+    # DROID_franka_robotiq.yaml.
+    dof: 13   # 7 руки + 6 гриппера (все приводные)
+    # Robotiq 2F-85 смыкается при РОСТЕ угла knuckle: пределы ведущих суставов 0..45 град,
+    # где ноль — раскрытое положение (см. default_joint_pos: «the gripper opens at zero»).
+    # Умолчание движка — grasping_direction="lower", то есть «закрыто = нижний предел»;
+    # оно верно для ПРИЗМАТИЧЕСКИХ суставов, которыми управлял droid_arm.py
+    # (_gripper_control_idx = arange(7, 11), ход 0..0.05 м, ноль = сомкнуто).
+    # untangle_droid_gripper.py эти суставы удаляет — они замыкают параллелограмм — и
+    # переводит управление на вращательные, где смысл нижнего предела противоположный.
+    # Без этой строки команда «сжать» раскрывает губки до упора, поза ведущего сустава
+    # застывает в нуле, наблюдение модели перестаёт меняться, и политика повторяет одну
+    # и ту же команду весь эпизод (измерено 10.08.2026: одно уникальное значение против
+    # восьми на стоке). Механизм: robot.py:3450, "inverted": grasping_direction == "upper".
+    # Равноценная альтернатива — closed_qpos/open_qpos в controller_config.gripper_0.
+
+    obs_modalities: ["rgb", "proprio"]
+    proprio_obs: ["joint_qpos"]
+    control_freq: 15
+    action_normalize: False
+    action_type: "continuous"
+    friction: [ 0.05, 0.10, 0.05, 0.10, 0.75, 0.425, 0.20 ]
+    armature: [ 0.25, 0.50, 0.25, 0.50, 0.25, 0.150, 0.00 ]
+    controller_name: "CustomJointController"
+    controller_config:
+        arm_0:
+            name: "CustomJointController"
+            "motor_type": "position"
+            control_freq: 15
+            use_delta_commands: False
+            use_impedances: True
+            use_gravity_compensation: False,
+            use_cc_compensation: False,
+            Kq: [ 40, 30, 50, 35, 35, 25, 10 ]
+            Kqd: [ 4, 6, 5, 5, 3, 2, 1 ]
+            Kx: [ 400, 400, 400, 15, 15, 15 ]
+            Kxd: [ 37, 37, 37, 2, 2, 2 ]
+            command_output_limits: null
+            command_input_limits: null
+            max_effort: [ 87.0, 87.0, 87.0, 87.0, 12.0, 12.0, 12.0 ]
+            min_effort: [ -87.0, -87.0, -87.0, -87.0, -12.0, -12.0, -12.0 ]
+        gripper_0:
+          name: "CustomGripperController"
+          mode: "binary"
+          # Явные положения пальцев вместо подбора знаков — числа взяты из спецификации
+          # Robotiq 2F-85 (realm/robots/panda_robotiq/panda_robotiq_85.urdf), а не подобраны:
+          #
+          #   driver      (ведущий)  ход 0..0.834 рад   множитель +1
+          #   spring_link (колено)                      множитель +1  -> идёт ВМЕСТЕ с ведущим
+          #   follower    (колодка)                     множитель -1  -> идёт ПРОТИВ ведущего
+          #
+          # Левая и правая половины имеют ОДИНАКОВЫЕ множители: зеркальность в настоящем
+          # 2F-85 задана посадочным разворотом на 180 град (rpy="0 0 3.14159" у левой половины),
+          # а не противоположными знаками. Порядок значений соответствует finger_joint_names
+          # в droid2.yaml: ведущие, колодки, колена.
+          closed_qpos: [ 0.834,  0.834,  -0.834, -0.834,   0.834,  0.834 ]
+          open_qpos:   [ 0.0,    0.0,     0.0,    0.0,     0.0,    0.0   ]
+
+    sensor_config:
+      VisionSensor:
+        sensor_kwargs:
+          # NOTE: patched -- reduced from REALM's 720x1280 (matching the #243/#432 fallback
+          # already noted by REALM's own authors in camera_config.yaml) to shrink Isaac Sim's
+          # RTX-renderer GPU footprint (framebuffers/denoiser buffers per camera). Needed to
+          # share a single 16GB GPU with the pi0-fast/JAX policy server (see thesis Methodology
+          # -- both processes run on native Windows / WSL2 on the same win2 GPU). pi0-fast
+          # resizes observations internally regardless of raw render resolution, so this does
+          # not change what the policy actually sees.
+          image_height: 243
+          image_width: 432
+          focal_length: 2.8
+          # NOTE: patched -- must be set explicitly on OmniGibson >= 3.9.1. VisionSensor now
+          # writes horizontalAperture at initialisation, defaulting it to 20.995, instead of
+          # leaving whatever the camera prim authored. The wrist camera in droid.usd authors
+          # 5.376 x 3.024, i.e. an 87.7 deg horizontal FOV; letting the engine default it
+          # inflates the wrist view to roughly 150 deg, which is not the viewpoint pi0-FAST
+          # was trained on. Credit: this default change was identified by REALM's author in
+          # the upstream port-to-og391 branch.
+          horizontal_aperture: 5.376
+
