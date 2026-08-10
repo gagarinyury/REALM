@@ -439,7 +439,7 @@ without particle systems — which is what `set_rendering_mode` now does for
 `rt`. No REALM_DROID10 task contains fluids or particles, so the isosurface
 path is dead weight here regardless.
 
-### 9. The repaired gripper does not close (open issue)
+### 9. The repaired gripper does not close -- a 0.2 velocity clamp (solved)
 
 Section 3 restores REALM's own `droid.usd` by breaking the parallelogram loop
 and re-coupling the gripper with `PhysxMimicJointAPI`, the way the stock
@@ -466,7 +466,25 @@ with one real discrepancy since fixed: the sides are mirrored, and the stock
 we had copied the left side's `-1` and `[0, 45]`. Correcting it alone did not
 change the outcome.
 
-Two further observations, both unresolved:
+**Root cause, found 10.08.2026.** `droid.usd` sets `physxJoint:maxJointVelocity = 0.2` on the
+trailing gripper joints, against `120` on the leading ones and `inf` on the same joints of the
+stock Robotiq. The joints were never stuck and never unpowered -- they moved at 0.2 deg/s.
+Forty steps at 15 Hz is 2.7 s, so 0.2 * 2.7 = 0.0094 rad against the 0.0112 rad measured; a full
+45 deg stroke would take four minutes. The clamp is harmless as shipped, where those joints are
+carried by the parallelogram's loop constraints rather than driven; breaking the loop (section 3)
+made them driven and turned it into a handbrake.
+
+Lift it -- `realm/robots/panda_robotiq/lift_gripper_velocity_clamp.py` -- and the coupling from
+section 3 works at once: leading knuckles reach 0.7854 rad, trailing ones follow to 0.7158 and
+0.7854. That repair was correct all along.
+
+Worth knowing when hunting something similar: a clamped joint and an uncoupled joint look
+identical from outside, so six coupling hypotheses were tried and discarded before this surfaced.
+It showed up only by exporting the binary asset to text (`Usd.Stage.Open(...).Export(...)` under
+the Isaac interpreter) and diffing a working joint against a stuck one, where the whole
+difference is one line.
+
+Two earlier observations, kept because they cost time and may bite again:
 
 - Driving the inner knuckles directly (restore `DriveAPI`, list them in
   `finger_joint_names` so `gripper_control_idx` picks them up) does move them
