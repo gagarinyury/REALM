@@ -25,11 +25,19 @@ assert USD, "usage: python lift_gripper_velocity_clamp.py <path to droid.usd>"
 # Все суставы гриппера: на mimic-конструкции лимит 0.2 стоит и на ведомых, и это ровно та
 # причина, по которой mimic выглядел неработающим -- констрейнт вёл сустав, а лимит скорости
 # не давал ему двигаться быстрее 0.2 град/с.
+# ТОЛЬКО ВЕДОМЫЕ. Правка от 10.08.2026: прежний список включал и ведущие
+# outer_knuckle, у которых в ассете стоит осмысленное ограничение 120 град/с --
+# оно и задаёт нормальную скорость привода. Сняв его заодно с паразитным 0.2,
+# мы получили гриппер, захлопывающийся за ОДИН шаг симуляции (измерено: 99.9%
+# хода за шаг против 40.8% на авторском стенде, то есть ~680 град/с против ~275;
+# настоящий Robotiq 2F-85 закрывается за полсекунды, то есть около 90 град/с).
+# Следствие мгновенного срабатывания -- политика видит скачкообразную смену
+# состояния и переключает команду каждые 8 шагов, губки клацают и не удерживают
+# объект. Эталон тот же, что и был описан здесь изначально: у стокового ur5e
+# ограничение стоит ТОЛЬКО на ведущих (130), у ведомых -- inf.
 TARGETS = [
     "/panda/gripper_link_base/left_inner_knuckle_joint",
     "/panda/gripper_link_base/right_inner_knuckle_joint",
-    "/panda/gripper_link_base/left_outer_knuckle_joint",
-    "/panda/gripper_link_base/right_outer_knuckle_joint",
     "/panda/gripper_link_left_inner_knuckle/left_inner_finger_knuckle_joint",
     "/panda/gripper_link_right_inner_knuckle/right_inner_finger_knuckle_joint",
     "/panda/gripper_link_left_outer_knuckle/left_outer_finger_knuckle_joint",
