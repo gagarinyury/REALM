@@ -30,7 +30,10 @@ log = create_module_logger(module_name=__name__)
 # Both names are taken from the respective model definitions, not guessed. Resolved once per
 # routing path against the links the robot actually exposes, so adding another asset means
 # extending this tuple rather than editing call sites.
-EEF_LINK_CANDIDATES = ("eef_link", "panda_link8")
+#   "panda_link_ee" -- робот droid2, собранный штатным импортёром из panda_robotiq_85.urdf
+#                    (realm/robots/panda_robotiq/IMPORT_FROM_URDF.md); имя звена приходит
+#                    из URDF, где схват называется именно так.
+EEF_LINK_CANDIDATES = ("eef_link", "panda_link8", "panda_link_ee")
 
 _EEF_LINK_IDX_CACHE = {}
 

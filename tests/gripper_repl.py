@@ -10,8 +10,8 @@
 проверка после этого стоит секунды, и гипотезы можно перебирать десятками, а не по одной
 за прогон.
 
-Запуск (на машине с симулятором):
-    OMNIGIBSON_HEADLESS=1 python tests/gripper_repl.py &
+Запуск (на машине с симулятором); робот выбирается переменной окружения:
+    OMNIGIBSON_HEADLESS=1 REALM_ROBOT=DROID2 python tests/gripper_repl.py &
 
 Управление — записью строки в /tmp/gripper_cmd, ответ появляется в /tmp/gripper_out:
     echo 'close 40'        # сомкнуть, 40 шагов
@@ -21,7 +21,13 @@
     echo 'place'           # поставить предмет задачи между губками
     echo 'lift 0.25'       # поднять руку и проверить, удержался ли предмет
     echo 'joint <имя> <значение>'   # задать сустав напрямую, минуя контроллер
+    echo 'links'           # мировые позы звеньев и камеры, и то же относительно panda_link7
+    echo 'py <выражение>'  # любой замер по живой сцене, без перезапуска
     echo 'quit'
+
+Команда `py` появилась после того, как половина отладки ушла на перезапуски ради одного
+недостающего числа: сцена грузится четыре минуты, а вопрос «а где сейчас колодка?»
+занимает миллисекунду. Доступны env, robot, realm_env, th.
 """
 
 import os
@@ -48,7 +54,8 @@ def main():
     from realm.environments.env_dynamic import RealmEnvironmentDynamic
     from realm.eval import SUPPORTED_TASKS, set_sim_config
 
-    set_sim_config(rendering_mode="r", robot="DROID")
+    robot_name = os.environ.get("REALM_ROBOT", "DROID")
+    set_sim_config(rendering_mode="r", robot=robot_name)
     with gm.unlocked():
         gm.ENABLE_HQ_RENDERING = False
 
@@ -60,7 +67,7 @@ def main():
         multi_view=False,
         no_rendering=False,   # рендер нужен для записи видео
         rendering_mode="r",
-        robot="DROID",
+        robot=robot_name,
     )
     env, robot = realm_env.omnigibson_env, realm_env.robot
     env.reset()
@@ -211,6 +218,30 @@ def main():
                 env.step(th.cat([robot.get_joint_positions()[:7], th.tensor([0.0])]))
             say(f"{name} = {float(robot.get_joint_positions()[idx]):.4f}; "
                 f"зазор {finger_surface_gap(robot):.4f} м")
+        elif op == "links":
+            # Геометрия важнее любых логов: ракурс камеры и глубина посадки гриппера
+            # определяют, увидит ли модель то, на чём обучалась. Позы даются и
+            # относительно panda_link7 — так их можно сравнить с эталонным droid.usd,
+            # где рука стоит на тумбе другой высоты.
+            base = robot.links["panda_link7"]
+            bp, bq = base.get_position_orientation()
+            say(f"panda_link7 в мире: {[round(float(x), 4) for x in bp]}")
+            for name, link in sorted(robot.links.items()):
+                p, q = link.get_position_orientation()
+                rel = p - bp
+                say(f"  {name:34s} мир={[round(float(x),4) for x in p]}  "
+                    f"от link7={[round(float(x),4) for x in rel]}")
+        elif op == "py":
+            expr = line[3:]
+            try:
+                say(repr(eval(expr, {"env": env, "robot": robot, "realm_env": realm_env,
+                                     "th": th, "og": og})))
+            except SyntaxError:
+                scope = {"env": env, "robot": robot, "realm_env": realm_env, "th": th, "og": og,
+                         "say": say}
+                exec(expr, scope)
+            except Exception as e:
+                say(f"ОШИБКА: {type(e).__name__}: {e}")
         elif op == "video":
             import imageio
 

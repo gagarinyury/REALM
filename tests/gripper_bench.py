@@ -47,11 +47,20 @@ def finger_gap(robot):
     сближаются, поэтому по одному этому числу нельзя судить «сомкнулись или нет».
     Ниже считается и расстояние по геометрии коллизий — см. finger_surface_gap().
     """
-    links = [l for name, l in robot.links.items() if "inner_finger" in name and "knuckle" not in name]
+    links = _finger_links(robot)
     if len(links) < 2:
         return float("nan")
     a, b = links[0].get_position_orientation()[0], links[1].get_position_orientation()[0]
     return float(th.norm(a - b))
+
+
+def _finger_links(robot):
+    """Пальцевые звенья по определению робота, с запасным вариантом по маске имени."""
+    try:
+        names = robot.finger_link_names[robot.default_arm]
+        return [robot.links[n] for n in names if n in robot.links]
+    except Exception:
+        return [l for n, l in robot.links.items() if "inner_finger" in n and "knuckle" not in n]
 
 
 def finger_surface_gap(robot):
@@ -60,7 +69,7 @@ def finger_surface_gap(robot):
     Именно это отвечает на вопрос «сомкнулись ли губки»: берутся центры коллизионных
     мешей каждого пальца и меряется расстояние между ближайшей парой.
     """
-    fingers = [l for name, l in robot.links.items() if "inner_finger" in name and "knuckle" not in name]
+    fingers = _finger_links(robot)
     if len(fingers) < 2:
         return float("nan")
     pts = []
@@ -90,8 +99,8 @@ def pad_tilt(robot):
     """
     import omnigibson.utils.transform_utils as T
 
-    base = [l for n, l in robot.links.items() if n.endswith("gripper_link_base")]
-    pads = [l for n, l in robot.links.items() if "inner_finger" in n and "knuckle" not in n]
+    base = [l for n, l in robot.links.items() if n.endswith("gripper_link_base") or n.endswith("robotiq_2f_85_base")]
+    pads = _finger_links(robot)
     if not base or len(pads) < 2:
         return {}
     _, bq = base[0].get_position_orientation()
@@ -104,8 +113,16 @@ def pad_tilt(robot):
 
 
 def gripper_joint_positions(robot):
-    """Позы всех суставов гриппера, включая ведомые (их нет в логах роллаута)."""
-    names = [n for n in robot.joints if "knuckle" in n or "finger" in n]
+    """Позы всех суставов гриппера, включая ведомые (их нет в логах роллаута).
+
+    Имена берутся У РОБОТА (finger_joint_names в его определении), а не угадываются по
+    маске имени: у droid они содержат "knuckle", у импортированного droid2 — "driver",
+    "follower", "spring_link". Маска молча возвращала пустой список.
+    """
+    arm = robot.default_arm
+    names = list(robot.finger_joint_names[arm]) if hasattr(robot, "finger_joint_names") else []
+    if not names:
+        names = [n for n in robot.joints if "knuckle" in n or "finger" in n]
     qpos = robot.get_joint_positions()
     idx = {n: i for i, n in enumerate(robot.joints)}
     return {n: float(qpos[idx[n]]) for n in names}
