@@ -2,6 +2,7 @@ import numpy as np
 import torch
 
 from realm.environments.utils import *
+from realm.environments.contact_utils import get_impulse_contacts
 from realm.helpers import compute_rot_diff_magnitude
 from realm.robots.droid_joint_controller import IndividualJointPDController as DROIDJointPDController
 from realm.robots.droid_gripper_controller import MultiFingerGripperController as DROIDGripperController
@@ -135,31 +136,23 @@ class RealmEnvironmentBase:
         # We use prefixes to catch links and geoms belonging to these objects
         ignore_obj_roots = [obj.prim_path for obj in self.main_objects + self.target_objects]
 
-        # NOTE: patched for newer OmniGibson -- RigidPrim.contact_list() (a raw per-contact
-        # impulse report API) was removed upstream. Reimplemented using
-        # RigidContactAPI.get_contact_pairs, the same aggregated boolean contact-matrix API used
-        # elsewhere in this file (see is_grasping above). This API only reports whether two
-        # bodies are in contact at all -- no per-contact impulse magnitude is exposed anymore --
-        # so the original impulse-threshold filtering (dropping contacts below a 1e-3 N*s
-        # impulse) can no longer be replicated as-is. OmniGibson's internal contact-matrix
-        # aggregation (see RigidContactAPI class docstring) already approximates
-        # negligible/resting-contact filtering via net-contact-force and position-change
-        # heuristics, and the adjacent-link + ignored-object filtering below still applies.
-        # Documented as a methodology caveat (thesis Methodology) since it is a real, if minor,
-        # behavioral difference from REALM's original collision-detection granularity.
+        # NOTE: patched -- RigidPrim.contact_list() (the per-contact impulse report REALM used
+        # before 3.9.1) was removed upstream, and the replacement API is boolean: every resting
+        # contact counts. Our first attempt at this asserted, in a comment right here, that the
+        # impulse magnitudes were simply gone and that the 1e-3 threshold could no longer be
+        # reproduced. That was wrong, and it cost us: rollouts on 10.08.2026 reported up to 25
+        # environment collisions on a run where the arm touched nothing.
+        #
+        # The magnitudes are available -- they can be read out of RigidContactAPI's private
+        # contact view -- which REALM's author demonstrated in realm/environments/contact_utils.py
+        # (branch port-to-og391). That module is vendored here verbatim and used below, so the
+        # counters mean the same thing they meant before the migration.
         scene_idx = self.robot.scene.idx
-        for link in robot_links:
-            # Skip root link (usually touching mount/floor)
-            if link.name == self.robot.root_link_name:
-                continue
+        queried = [l for l in robot_links if l.name != self.robot.root_link_name]
+        contacts = get_impulse_contacts(scene_idx, queried)
 
-            contact_pairs = RigidContactAPI.get_contact_pairs(
-                scene_idx=scene_idx,
-                query_set=[link],
-                with_set=None,
-                current_only=True,
-            )
-            for _, other_path in contact_pairs:
+        for link in queried:
+            for other_path in contacts.get(link.prim_path, ()):
                 # Check if other_path belongs to the robot
                 is_robot = other_path in robot_link_paths or other_path.startswith(robot_prim_path)
 
