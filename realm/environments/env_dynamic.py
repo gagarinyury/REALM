@@ -149,7 +149,7 @@ def set_rendering_mode(rendering_mode):
 class RealmEnvironmentDynamic(RealmEnvironmentBase):
     def __init__(
         self,
-        config_path="/app/realm/config",
+        config_path=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config"),
         scene_model=None,
         scene_part=None,
         reset_qpos=None,
@@ -162,7 +162,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         robot: str = "DROID"
     ) -> None:
         assert not (multi_view and no_rendering), f"Multi-view rendering was enabled during no_rendering mode. Either one is likely a mistake."
-        self.task_cfg_path = "/".join(task_cfg_path.split("/")[-3:])
+        self.task_cfg_path = "/".join(task_cfg_path.replace("\\", "/").split("/")[-3:])
         self.use_droid_with_base = True if self.task_cfg_path.split("/")[0] == "REALM_DROID10" else False # TODO: infer properly from the task/scene config yaml
         self.robot_name = robot
         self.multi_view = multi_view
@@ -598,7 +598,7 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
         for model_path in get_all_object_models():
             if os.path.exists(model_path):
-                category = model_path.split("/")[-2]
+                category = model_path.replace("\\", "/").split("/")[-2]
                 if category in whitelisted_categories:
                     available_object_paths.append(model_path)
 
@@ -614,8 +614,8 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
         sampled_indices = np.random.choice(len(available_object_paths), size=num_objects, replace=False)
         sampled_objects = []
         for i in sampled_indices:
-            category = available_object_paths[i].split("/")[-2]
-            model_id = available_object_paths[i].split("/")[-1]
+            category = available_object_paths[i].replace("\\", "/").split("/")[-2]
+            model_id = available_object_paths[i].replace("\\", "/").split("/")[-1]
             name = f"distractor_{i}"
             obj_cfg = {
                 "type": "DatasetObject",
