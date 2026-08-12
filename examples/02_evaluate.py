@@ -1,5 +1,6 @@
 import argparse
 from realm.eval import evaluate
+import os
 import sys
 
 import omnigibson as og
@@ -36,7 +37,8 @@ if __name__ == "__main__":
     assert args.experiment_name is not None
     #assert not (args.task_cfg_path and args.task_id), f"Either task --task_cfg_path or --task_id should be specified, but not both."
 
-    log_dir = args.log_dir if args.log_dir is not None else "/app/logs"
+    log_dir = args.log_dir if args.log_dir is not None else os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
     log_dir += f"/{args.experiment_name}"
     log_dir += f"/{args.model_name}"
     log_dir += f"/{args.run_id}" if args.run_id is not None else ""

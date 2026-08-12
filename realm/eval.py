@@ -88,7 +88,7 @@ def evaluate(
         model_type="pi0_FAST",
         port=8000,
         host="127.0.0.1",
-        log_dir="/app/logs",
+        log_dir=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs"),
         resume=False,
         multi_view=False,
         no_record=False,
@@ -111,8 +111,8 @@ def evaluate(
         task = SUPPORTED_TASKS[task_id]
         task_cfg_path = f"REALM_DROID10/{task}/default.yaml"
     else:
-        task = task_cfg_path.split("/")[-2]
-        config_name = task_cfg_path.split("/")[-1].replace(".yaml", "").replace(".cfg", "")
+        task = task_cfg_path.replace("\\", "/").split("/")[-2]
+        config_name = task_cfg_path.replace("\\", "/").split("/")[-1].replace(".yaml", "").replace(".cfg", "")
         if config_name != "default":
             task = f"{task}_{config_name}"
 
@@ -125,7 +125,7 @@ def evaluate(
     og.log.info(f"DEBUG: Client connected: {time.perf_counter() - start:.4f}s")
 
     env = RealmEnvironmentDynamic(
-        config_path="/app/realm/config",
+        config_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "config"),
         task_cfg_path=task_cfg_path,
         perturbations=perturbations,
         multi_view=multi_view,

@@ -1,3 +1,4 @@
+import os
 from math import floor
 
 import torch as th
@@ -107,7 +108,8 @@ class DroidEndEffectorController(LocomotionController, ManipulationController, G
         self.Kx = Kx.detach().to(og.sim.device)
         self.Kxd = Kxd.detach().to(og.sim.device)
 
-        urdf_path = f"/app/realm/robots/panda_robotiq/panda_arm.urdf"
+        urdf_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "panda_robotiq", "panda_arm.urdf")
         self.time_tracker = -1 # we update at the very beginning of compute_control, so this is 0 when controller is queried for the very first time
         self.cached_torque = None
 

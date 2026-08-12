@@ -35,7 +35,7 @@ def sample_objects(env: "RealmEnvironmentDynamic", num_objects=3, included_categ
 
     for model_path in get_all_object_models():
         if os.path.exists(model_path):
-            category = model_path.split("/")[-2]
+            category = model_path.replace("\\", "/").split("/")[-2]
             if category in whitelisted_categories:
                 available_object_paths.append(model_path)
 
@@ -51,8 +51,8 @@ def sample_objects(env: "RealmEnvironmentDynamic", num_objects=3, included_categ
     sampled_indices = np.random.choice(len(available_object_paths), size=num_objects, replace=False)
     sampled_objects = []
     for i in sampled_indices:
-        category = available_object_paths[i].split("/")[-2]
-        model_id = available_object_paths[i].split("/")[-1]
+        category = available_object_paths[i].replace("\\", "/").split("/")[-2]
+        model_id = available_object_paths[i].replace("\\", "/").split("/")[-1]
         name = f"distractor_{i}"
         obj_cfg = {
             "type": "DatasetObject",
