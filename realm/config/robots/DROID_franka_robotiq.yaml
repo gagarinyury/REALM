@@ -48,8 +48,8 @@ robots:
             control_freq: 15
             use_delta_commands: False
             use_impedances: True
-            use_gravity_compensation: False,
-            use_cc_compensation: False,
+            use_gravity_compensation: False
+            use_cc_compensation: False
             Kq: [ 40, 30, 50, 35, 35, 25, 10 ]
             Kqd: [ 4, 6, 5, 5, 3, 2, 1 ]
             Kx: [ 400, 400, 400, 15, 15, 15 ]

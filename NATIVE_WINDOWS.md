@@ -584,6 +584,61 @@ gripper open, then closed, and prints every joint's travel plus the gap between 
 links. Any question about the gripper should go through it rather than through a 20-minute
 rollout — that cost is why six wrong hypotheses were tried before this one.
 
+### 12. The grasp clause was dead code, and upstream chose to keep it that way
+
+Found here on 10.08.2026 (`3257bab`, 13:35 UTC) and, independently, upstream on 11.08.2026
+(`dce5ae7` on `port-to-og391`, 16:03 UTC). Same defect, **different fixes** — anyone comparing
+numbers across the two repositories needs this section.
+
+`is_grasping` requires three conditions at once, and the third one read `proprio[7:9]` and
+tested `0.45 - q > 1e-3`. On REALM's own `droid.usd` those two entries are the *prismatic*
+finger joints with a 0..0.05 m stroke, so the test evaluates `0.45 - 0.05 > 0`: true for every
+pose the gripper can physically reach. It has never rejected anything, on any run, in any
+published REALM result — a grasp there is decided purely by the two contact conditions.
+Upstream states the same conclusion in `dce5ae7` and adds a number from the other side: on a
+*revolute* 2F-85 the identical constant rejected 78 of 78 steps in which both pads were on the
+block and the block was lifted.
+
+The constant only becomes visible once the parallelogram is untangled (section 3) and control
+moves onto the revolute knuckles, stroke 0..0.7854 rad. Measured here with
+`tests/gripper_bench.py` on 10.08.2026:
+
+| | `proprio[7:9]` | upstream clause |
+|---|---|---|
+| jaws open | `[0.0000, 0.0000]` | True |
+| jaws closed | `[0.7774, 0.5414]` | **False** |
+
+So GRASP could never be awarded and `task_progression` froze at 0.2 (REACH only) no matter what
+the gripper did — four rollouts with progressively better gripper physics all returned exactly
+0.2, which is what led here.
+
+**This fork restores the clause's meaning.** It asks "are the fingers driving towards closure",
+and the honest answer for an arbitrary gripper compares against that gripper's own joint
+limits, taken from the robot rather than from hard-coded indices — `eval.py:172` already
+resolves them this way:
+
+```python
+closed_frac = (finger_joints - lower) / max(upper - lower, 1e-9)
+is_either_finger_closing = bool((closed_frac > 0.1).any())
+```
+
+**Upstream deliberately preserves the tautology.** `dce5ae7` scales the threshold as
+`open + 9.0 * (closed - open)`, which reproduces `0.45` exactly for `droid.usd` — so every
+historical number stays bit-identical — and stays vacuous on the new robolab asset, "exactly as
+it has always been on the stock asset". The commit notes that `0.45` is likely a typo for
+`0.045`, which would give the guard real meaning, and leaves adopting that to a separate
+decision because it would change SR.
+
+Both choices are defensible: upstream protects the continuity of a published benchmark, this
+fork wants the stage to mean what its name says. The consequence for anyone reading numbers
+from both repositories is that **this fork's grasp criterion is strictly stricter**, so its
+progression and success rates are not directly comparable to REALM's published figures, and
+where they are compared the difference has to be stated. Concretely: the 0.61 π0-FAST baseline
+was obtained with a grasp check that never rejected a single step.
+
+`tests/gripper_bench.py` prints both the fork's live formula and the resulting flag, so the
+bench cannot silently drift away from `env_base.py` again.
+
 ## Status
 
 Full pipeline verified working end-to-end natively on Windows (RTX 5080,

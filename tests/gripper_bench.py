@@ -24,6 +24,7 @@
 import argparse
 import sys
 
+import numpy as np
 import torch as th
 
 _OUT = open("/tmp/gripper_bench_result.txt", "w", buffering=1)
@@ -37,6 +38,70 @@ def say(*a):
 
 import omnigibson as og
 from omnigibson.macros import gm
+
+
+def closing_fraction(robot):
+    """Доля хода до смыкания по каждому пальцу, как её считает env_base.is_grasping.
+
+    Держим формулу здесь ОДНУ И ТУ ЖЕ с боевой: стенд, печатающий не то, что реально
+    засчитывает метрика, уже один раз стоил дня отладки — до 10.08 здесь оставалось
+    авторское `0.45 - proprio[7:9] > 1e-3`, хотя в env_base.py условие давно другое.
+    """
+    idx = robot.gripper_control_idx[robot.default_arm]
+    q = robot.get_joint_positions()[idx].cpu().numpy()
+    lower = robot.joint_lower_limits[idx].cpu().numpy()
+    upper = robot.joint_upper_limits[idx].cpu().numpy()
+    return (q - lower) / np.maximum(upper - lower, 1e-9)
+
+
+def is_either_finger_closing(robot):
+    """Третье условие GRASP (env_base.py:206), ровно в боевой формулировке."""
+    return bool((closing_fraction(robot) > 0.1).any())
+
+
+def gripper_state_seen_by_policy(robot):
+    """Что уйдёт политике в observation/gripper_position, по формуле eval.py:171-176.
+
+    У Мартина ровно здесь оказалась инверсия (ROBOT_OBS_PROFILES со смененными местами
+    open/closed qpos, коммит dce5ae7): политика получала «сомкнуто», когда рука раскрыта,
+    и, будучи замкнутой по этому сигналу, не решалась довести хват. У нас индекс и предел
+    берутся у самого робота, так что инверсия закрыта по построению — но НИ РАЗУ НЕ
+    ИЗМЕРЕНА. Возвращаем (значение, ожидание): 0 = раскрыт (gripper_trace.py:12).
+    """
+    arm = robot.default_arm
+    i = int(robot.gripper_control_idx[arm][0])
+    lo = float(robot.joint_lower_limits[i])
+    hi = float(robot.joint_upper_limits[i])
+    q = float(robot.get_joint_positions()[i])
+    return (q - lo) / max(hi - lo, 1e-9)
+
+
+def reach_origin_offset(robot):
+    """Насколько начало координат пальцевого звена отстоит от его же губки, м.
+
+    Зачем. check_reach_condition (env_base.py:254-263) меряет расстояние от НАЧАЛА
+    пальцевого звена до предмета и сравнивает с 0.1 м. Если начало звена сидит не на
+    губке, а на месте крепления гриппера, REACH не сработает никогда, и рубрика замрёт
+    до GRASP независимо от того, что делает политика. Именно это Мартин нашёл 11.08 на
+    своём robolab-ассете: 0.134 м смещения, REACH не срабатывал ни разу (dce5ae7).
+
+    Мы на стоковом franka_robotiq, где геометрия своя и эта величина не измерялась.
+    Возвращает список смещений по пальцам: |начало звена - центр его коллизионной геометрии|.
+    """
+    out = []
+    for link in _finger_links(robot):
+        origin = link.get_position_orientation()[0]
+        try:
+            meshes = list(link.collision_meshes.values())
+        except Exception:
+            meshes = []
+        if not meshes:
+            out.append((link.prim_path.split("/")[-1], float("nan")))
+            continue
+        centres = th.stack([m.get_position_orientation()[0] for m in meshes])
+        centroid = centres.mean(dim=0)
+        out.append((link.prim_path.split("/")[-1], float(th.norm(origin - centroid))))
+    return out
 
 
 def finger_gap(robot):
@@ -154,13 +219,16 @@ def drive(env, robot, command, steps, label):
     say(f"{'зазор (начала звеньев), м':<40}{gap_before:>10.4f}{gap_after:>10.4f}{gap_after - gap_before:>+10.4f}")
     say(f"{'зазор (поверхности губок), м':<40}{surf_before:>10.4f}{surf_after:>10.4f}{surf_after - surf_before:>+10.4f}")
     say(f"наклон колодок к основанию, град: {tilt_before} -> {tilt_after}")
-    # Условие метрики REALM (env_base.py:187): 0.45 - q > 1e-3 по proprio[7:9].
-    # У авторов это призматика 0..0.05 м и условие тождественно истинно; после ремонта
-    # ассета там углы 0..0.785 рад, и оно стало живым фильтром.
-    proprio = robot.get_proprioception()[0]
-    q78 = [float(proprio[7]), float(proprio[8])]
-    cond = (0.45 - q78[0] > 1e-3) or (0.45 - q78[1] > 1e-3)
-    say(f"метрика REALM: proprio[7:9] = {[round(x, 4) for x in q78]}  ->  is_either_finger_closing = {cond}")
+    # Условие метрики REALM в НАШЕЙ редакции (env_base.py:206): доля хода до смыкания > 0.1,
+    # пределы берутся у самого робота. Апстрим сравнивал сырое значение сустава с 0.45; на
+    # призматике droid.usd (ход 0..0.05 м) это тождественная истина, дословно «мёртвый код».
+    # Мартин пришёл к тому же 11.08 (dce5ae7), но решил иначе: сохранил тождественность
+    # намеренно, чтобы исторические числа REALM остались бит-в-бит. Наш фильтр строже.
+    frac = closing_fraction(robot)
+    say(f"метрика REALM (наша): доля хода {[round(float(x), 4) for x in frac]}"
+        f"  ->  is_either_finger_closing = {is_either_finger_closing(robot)}")
+    say(f"gripper_state, который увидит политика: {gripper_state_seen_by_policy(robot):.4f}"
+        f"   (0 = раскрыт; если раскрытому грипперу здесь ~1 — сигнал инвертирован)")
     return surf_after - surf_before
 
 
@@ -219,8 +287,6 @@ if __name__ == "__main__":
     drive(env, robot, -1, args.steps, "сомкнуть на предмете")
 
     obs = env.get_obs()[0]
-    proprio = robot.get_proprioception()[0]
-    q78 = [float(proprio[7]), float(proprio[8])]
     from omnigibson.utils.usd_utils import RigidContactAPI  # noqa: E402
 
     touching = [
@@ -228,16 +294,37 @@ if __name__ == "__main__":
                                            with_set=[obj], ignore_set=None, current_only=True))
         for f in realm_env.robot_finger_links
     ]
-    cond_close = (0.45 - q78[0] > 1e-3) or (0.45 - q78[1] > 1e-3)
+    cond_close = is_either_finger_closing(robot)
     cond_both = sum(touching) == 2
     cond_robot = bool(realm_env.is_touching(obs, obj))
 
     say("\nТРИ УСЛОВИЯ GRASP (env_base.py:205):")
     say(f"  обе колодки касаются предмета : {cond_both}   (касаний: {sum(touching)} из 2)")
     say(f"  робот касается предмета       : {cond_robot}")
-    say(f"  0.45 - proprio[7:9] > 1e-3    : {cond_close}   (proprio[7:9] = {[round(x, 4) for x in q78]})")
+    say(f"  хотя бы один палец смыкается  : {cond_close}   "
+        f"(доля хода = {[round(float(x), 4) for x in closing_fraction(robot)]}, порог 0.1)")
     say(f"  ИТОГО GRASP засчитан          : {cond_both and cond_robot and cond_close}")
+    say(f"  сверка с боевым is_grasping   : {bool(realm_env.is_grasping(obs, obj))}")
     say(f"  наклон колодок к основанию    : {pad_tilt(robot)}")
+
+    # --- REACH: срабатывает ли он вообще на этом ассете ---
+    # Порядок именно такой: если REACH не срабатывает, рубрика замирает раньше GRASP,
+    # и все рассуждения о хвате не имеют значения (recompute_task_progression рвёт
+    # цикл на первой невыполненной стадии).
+    say("\n=== REACH: смещение начал пальцевых звеньев от губок ===")
+    say("порог check_reach_condition = 0.1 м, меряется ОТ НАЧАЛА ЗВЕНА (env_base.py:254-263)")
+    worst = 0.0
+    for name, off in reach_origin_offset(robot):
+        flag = ""
+        if off == off and off > 0.05:
+            flag = "  <-- сопоставимо с порогом 0.1 м"
+        if off == off:
+            worst = max(worst, off)
+        say(f"  {name:<34}{off:>8.4f} м{flag}")
+    say(f"  фактический check_reach_condition на этой позе: {bool(realm_env.check_reach_condition(obs))}")
+    if worst > 0.05:
+        say(f"  ВНИМАНИЕ: наибольшее смещение {worst:.4f} м съедает {100 * worst / 0.1:.0f}% порога REACH.")
+        say("  Это тот же дефект, что Мартин нашёл на robolab-ассете 11.08 (0.134 м, REACH не срабатывал ни разу).")
 
     say("\n=== УДЕРЖИВАЕТ ЛИ: поднимаем руку на 10 см ===")
     h0 = float(obj.get_position_orientation()[0][2])
