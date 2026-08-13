@@ -60,7 +60,12 @@ param(
     [string]$Branch = "win/dd091fd",
     [string]$ForkUrl = "https://github.com/gagarinyury/REALM.git",
     [string]$EnvName = "behavior",
-    [string]$CondaRoot = "C:\Miniconda3"
+    [string]$CondaRoot = "C:\Miniconda3",
+    # Path to an already-downloaded datasets directory (the one holding behavior-1k-assets).
+    # Given this, the dataset is moved into place and BEHAVIOR-1K's installer is called
+    # WITHOUT -Dataset. Worth using: the download is 141485 small files, and re-fetching it
+    # verifies nothing except your connection.
+    [string]$DatasetFrom = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -135,6 +140,34 @@ if ($runAll -or $Stage -eq "behavior") {
         git clone --depth 1 https://github.com/StanfordVL/BEHAVIOR-1K.git $b1k
     } else { Ok "already cloned" }
 
+    # Put a pre-existing dataset in place before the installer runs, so it sees the data and
+    # we can leave -Dataset off. The engine expects exactly {B1K}/datasets/behavior-1k-assets;
+    # the published archive unpacks WITHOUT that top-level directory, which is a common way
+    # to end up with the data on disk and the engine still unable to find it.
+    $dsTarget = Join-Path $b1k "datasets"
+    $wantDataset = $true
+    if ($DatasetFrom -ne "") {
+        # Check the destination first: a re-run after a later stage failed must not complain
+        # that the source is empty -- it is empty precisely because the move already happened.
+        if (Test-Path (Join-Path $dsTarget "behavior-1k-assets")) {
+            Ok "dataset already in place"
+        } elseif (-not (Test-Path (Join-Path $DatasetFrom "behavior-1k-assets"))) {
+            Die "-DatasetFrom '$DatasetFrom' does not contain behavior-1k-assets, and neither does $dsTarget"
+        } else {
+            New-Item -ItemType Directory -Force -Path $dsTarget | Out-Null
+            Say "  moving dataset into place (no copy -- same volume, this is instant)"
+            # -Force, and files as well as directories: the decryption key omnigibson.key sits
+            # loose in this directory, not inside behavior-1k-assets. Moving only the
+            # subdirectories leaves it behind, the dataset stays encrypted, and the first run
+            # dies with FileNotFoundError on omnigibson.key after loading the whole scene.
+            Get-ChildItem $DatasetFrom -Force | ForEach-Object {
+                Move-Item $_.FullName (Join-Path $dsTarget $_.Name) -Force
+            }
+            Ok "dataset moved from $DatasetFrom"
+        }
+        $wantDataset = $false
+    }
+
     if (Test-Path $python) {
         Ok "conda env '$EnvName' exists -- skipping installer"
     } else {
@@ -143,11 +176,20 @@ if ($runAll -or $Stage -eq "behavior") {
         # would mean re-deriving all of that by hand and going stale on the next release.
         Say "  running BEHAVIOR-1K's own setup.ps1 (this takes a long time)"
         Warn "it will ask you to accept the conda ToS, the NVIDIA EULA and the dataset ToS"
+        # Their installer looks conda up on PATH and stops with "ERROR: Conda not found" if it
+        # is not there. In a non-interactive session it usually is not: the entry comes from the
+        # shell hook an interactive profile runs. Put it on PATH for this process only.
+        foreach ($dir in @("$CondaRoot\Scripts", "$CondaRoot\condabin", "$CondaRoot")) {
+            if ((Test-Path $dir) -and ($env:PATH -notlike "*$dir*")) { $env:PATH = "$dir;$env:PATH" }
+        }
+        if (-not (Get-Command conda -ErrorAction SilentlyContinue)) { Die "conda still not on PATH after adding $CondaRoot" }
+        Ok "conda put on PATH for this process"
+
+        $setupArgs = @("-NewEnv","-OmniGibson","-BDDL","-AcceptCondaTos","-AcceptNvidiaEula","-AcceptDatasetTos")
+        if ($wantDataset) { $setupArgs += "-Dataset" } else { Say "  (dataset supplied, not downloading)" }
         Push-Location $b1k
         try {
-            & powershell -ExecutionPolicy Bypass -File .\setup.ps1 `
-                -NewEnv -OmniGibson -BDDL -Dataset `
-                -AcceptCondaTos -AcceptNvidiaEula -AcceptDatasetTos
+            & powershell -ExecutionPolicy Bypass -File .\setup.ps1 @setupArgs
             if ($LASTEXITCODE -ne 0) { Die "setup.ps1 exited with $LASTEXITCODE" }
         } finally { Pop-Location }
     }
@@ -156,6 +198,21 @@ if ($runAll -or $Stage -eq "behavior") {
     if (Test-Path $ds) {
         $n = (Get-ChildItem (Join-Path $ds "objects") -Directory -ErrorAction SilentlyContinue).Count
         Ok "dataset present, $n object categories"
+
+        # The assets ship encrypted and are useless without the key. It is a separate 44-byte
+        # download, so a dataset supplied via -DatasetFrom (or copied from another machine)
+        # frequently arrives without it. Fetch it rather than send the user back to the
+        # 35 GB installer.
+        $keyPath = Join-Path $b1k "datasets\omnigibson.key"
+        if (Test-Path $keyPath) {
+            Ok "decryption key present"
+        } else {
+            Say "  decryption key missing -- fetching it (44 bytes, not the dataset)"
+            $env:OMNI_KIT_ACCEPT_EULA = "YES"
+            & $python -c "from omnigibson.utils.asset_utils import download_key; download_key()"
+            if (-not (Test-Path $keyPath)) { Die "could not fetch omnigibson.key" }
+            Ok "decryption key fetched"
+        }
     } else {
         # The archive unpacks WITHOUT a top-level directory while the engine expects
         # {DATA_PATH}/behavior-1k-assets/ -- if the download went somewhere else, this is why.
@@ -215,9 +272,16 @@ if ($runAll -or $Stage -eq "realm") {
 if ($runAll -or $Stage -eq "deps") {
     Step 5 "REALM dependencies"
 
+    # Everything here is installed against upstream's own constraints file, which pins the
+    # versions OmniGibson and the isaacsim 5.1 wheels are built against. Without -c, a
+    # transitive dependency of any package below happily upgrades numpy past 2.0 and the
+    # engine stops importing.
+    $constraints = Join-Path $realm ".docker\og391-constraints.txt"
+    if (-not (Test-Path $constraints)) { Die "constraints file missing at $constraints" }
+
     # REALM is not pip-installed: it is imported from PYTHONPATH. Only its bundled
     # websocket client is a real package.
-    & $pip install -q -e (Join-Path $realm "packages\openpi-client")
+    & $pip install -q -c $constraints -e (Join-Path $realm "packages\openpi-client")
     Ok "openpi-client installed"
 
     # Pins from .docker/realm_og391.Dockerfile + og391-constraints.txt. numpy above 1.26
@@ -225,8 +289,23 @@ if ($runAll -or $Stage -eq "deps") {
     $numpy = (& $python -c "import numpy; print(numpy.__version__)")
     if ($numpy -ne "1.26.0") { Warn "numpy is $numpy, expected 1.26.0" } else { Ok "numpy 1.26.0" }
 
-    # dm_robotics ships manylinux wheels only -- no Windows wheel, no sdist -- so this
-    # branch carries a replacement IK solver written against dm_control.mjcf + osqp.
+    # dm_robotics ships manylinux wheels only -- no Windows wheel, no sdist -- so pip refuses
+    # the whole chain, dm-robotics-moma included, and REALM dies at the first import of
+    # env_base (controller_registry -> droid_ee_controller -> robot_ik_solver). This branch
+    # carries a replacement IK solver written against dm_control.mjcf + osqp, both of which
+    # do have Windows wheels -- but nothing installs them, since they are not a dependency of
+    # OmniGibson. Versions are the ones this branch was verified against.
+    Say "  installing the dm_robotics replacement stack (mujoco + dm_control + osqp)"
+    & $pip install -q -c $constraints "mujoco==3.2.7" "dm_control" "osqp==0.6.7.post3"
+    if ($LASTEXITCODE -ne 0) { Die "could not install the IK solver dependencies" }
+
+    # REALM's own runtime dependencies, taken from the last pip layer of
+    # .docker/realm_og391.Dockerfile -- they are not in the OmniGibson base image, and
+    # without them realm.eval dies at import on ModuleNotFoundError: moviepy.
+    Say "  installing REALM runtime dependencies (wandb, moviepy, openai, fastparquet)"
+    & $pip install -q -c $constraints wandb moviepy openai fastparquet
+    if ($LASTEXITCODE -ne 0) { Die "could not install REALM runtime dependencies" }
+
     foreach ($mod in @("mujoco","dm_control","osqp","torch","gymnasium")) {
         $v = (& $python -c "import $mod, sys; print(getattr($mod,'__version__','?'))" 2>$null)
         if ($LASTEXITCODE -ne 0) { Die "python module '$mod' missing" }
@@ -247,17 +326,35 @@ if ($runAll -or $Stage -eq "patches") {
     $patches = Get-ChildItem (Join-Path $patchDir "*.patch") -ErrorAction SilentlyContinue
     if (-not $patches) { Warn "no patches on this branch"; }
 
-    Push-Location $og
+    # The patches carry engine-relative paths (a/omnigibson/prims/entity_prim.py), but
+    # BEHAVIOR-1K is itself a git repo and git apply resolves paths from ITS root, where the
+    # engine sits one level down under OmniGibson/. Running from inside OmniGibson does not
+    # help -- git still finds the parent .git. Hence --directory.
+    #
+    # git apply writes to stderr on a failed --check, which PowerShell turns into a
+    # NativeCommandError and, with ErrorActionPreference=Stop, into a terminating error. The
+    # probe is deliberately allowed to fail, so the preference is relaxed around it.
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    Push-Location $b1k
     try {
         foreach ($p in $patches) {
-            $check = (git apply --check --reverse $p.FullName 2>&1)
+            git apply --check --reverse --directory=OmniGibson $p.FullName 2>&1 | Out-Null
             if ($LASTEXITCODE -eq 0) { Ok "$($p.Name): already applied"; continue }
-            $check = (git apply --check $p.FullName 2>&1)
-            if ($LASTEXITCODE -ne 0) { Die "$($p.Name) does not apply: $check" }
-            git apply $p.FullName
+
+            $err = (git apply --check --directory=OmniGibson $p.FullName 2>&1)
+            if ($LASTEXITCODE -ne 0) {
+                $ErrorActionPreference = $prevEap
+                Die "$($p.Name) does not apply: $err"
+            }
+            git apply --directory=OmniGibson $p.FullName 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                $ErrorActionPreference = $prevEap
+                Die "$($p.Name) failed while applying"
+            }
             Ok "$($p.Name): applied"
         }
-    } finally { Pop-Location }
+    } finally { Pop-Location; $ErrorActionPreference = $prevEap }
 
     # One more relaxation lives outside the patch files because it was found later:
     # entity_prim.py asserts the entity prim and the root link share a pose, which the
@@ -265,8 +362,37 @@ if ($runAll -or $Stage -eq "patches") {
     # the IMPACT bench, where the robot stands on a countertop.
     $ep = Join-Path $og "omnigibson\prims\entity_prim.py"
     $txt = Get-Content $ep -Raw
-    if ($txt -match "REALM: relaxed") { Ok "pose assert already relaxed" }
-    else { Warn "pose assert NOT relaxed in entity_prim.py -- the IMPACT bench will fail with 'Position mismatch between entity prim and root link'; see NATIVE_WINDOWS.md" }
+    $marker = "REALM: pose asserts relaxed"
+    if ($txt -match [regex]::Escape($marker)) {
+        Ok "pose asserts already relaxed"
+    } else {
+        # Do NOT test for the string "REALM: relaxed" here: the patch above introduces it three
+        # times for three OTHER asserts, so that test passes on a machine where this one is
+        # still armed -- which is exactly what happened on the first clean install.
+        $pattern = '(?m)^(\s*)assert th\.allclose\(\s*\r?\n\s*this_position, root_link_position, atol=1e-2\s*\r?\n\s*\), "Position mismatch between entity prim and root link"\s*\r?\n\s*assert th\.allclose\(\s*\r?\n\s*this_orientation, root_link_orientation, atol=1e-2\s*\r?\n\s*\), "Orientation mismatch between entity prim and root link"'
+        if ($txt -notmatch $pattern) { Die "cannot find the pose asserts in entity_prim.py -- engine layout changed, relax them by hand" }
+
+        Copy-Item $ep "$ep.bak-before-pose-assert" -Force
+        $replacement = @'
+$1# REALM: pose asserts relaxed -- REALM's DROID asset carries a root-link offset from the
+$1# entity prim, so this pair fires whenever the robot is placed while the simulation is
+$1# stopped. Needed for the IMPACT bench, where the robot stands on a countertop. Same
+$1# family as the three relaxed in entity_prim_og391.patch.
+$1# assert th.allclose(
+$1#     this_position, root_link_position, atol=1e-2
+$1# ), "Position mismatch between entity prim and root link"
+$1# assert th.allclose(
+$1#     this_orientation, root_link_orientation, atol=1e-2
+$1# ), "Orientation mismatch between entity prim and root link"
+'@
+        ($txt -replace $pattern, $replacement) | Set-Content $ep -NoNewline
+        & $python -c "import py_compile,sys; py_compile.compile(r'$ep', doraise=True); print('ok')" | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Copy-Item "$ep.bak-before-pose-assert" $ep -Force
+            Die "relaxing the pose asserts broke the file; restored from backup"
+        }
+        Ok "pose asserts relaxed (backup .bak-before-pose-assert)"
+    }
 }
 
 # ---------------------------------------------------------------- verify
