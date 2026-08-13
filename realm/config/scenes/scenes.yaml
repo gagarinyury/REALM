@@ -174,6 +174,25 @@ Wainscott_0_int:
     rot: [ 0, 0, 225 ]
 
 Benevolence_1_int:
+  # Placement computed from the scene's own geometry (13.08.2026), not hand-tuned.
+  #
+  # The Kitchen_Counter entry below puts the robot at [-0.1, 0.05]. Read out of the scene's
+  # json for this dataset version, that point sits in the hallway: nearest wall 0.62 m, door
+  # 0.61 m, and the nearest countertop 8.8 m away. The marker then spawns at z=1.0 against a
+  # wall with no surface under it. Both exterior cameras look into furniture, the policy never
+  # sees the target, and the end effector stays 0.45 m away for all 800 steps.
+  #
+  # This entry places the robot in front of countertop_tpuwys_4 instead: base clear within
+  # 0.40 m, camera height clear within 0.60 m, work surface at z=0.900, marker 0.643 m from
+  # the base -- the same reach as put_green_block_into_bowl, which scores 1.0.
+  Kitchen_Counter_measured:
+    x_min: 0.927
+    x_max: 0.977
+    y_min: 8.693
+    y_max: 8.743
+    z: 0.910
+    pos: [ 0.927, 8.050, 0.0 ]
+    rot: [ 0, 0, 90 ]
   Kitchen_Counter:
     x_min: -0.4
     x_max: 0.2
