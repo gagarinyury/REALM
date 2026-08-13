@@ -1,0 +1,76 @@
+# Put the spoon into the tray, in Merom_1_int.
+#
+# Why this task exists. pick_spoon in this room scores 0.0 because the spoon lands off the
+# table: the stored spawn point puts it past the edge of the top and it drops to the floor,
+# and every attempt to move it "toward the centre" was computed from the table's bounding
+# box, which includes the legs and is therefore wider than the surface. Rather than keep
+# guessing at the geometry, this task is built from the two props that are demonstrably ON
+# the table in the rendered frames -- the can and the tray -- with their upstream spawn
+# points untouched.
+#
+# Both objects keep the relative_bbox_position they carry as distractors in
+# pick_spoon/default.yaml, so their placement is upstream's, not ours.
+
+task:
+  type": "DummyTask"
+  termination_config: {}
+  reward_config: {}
+
+task_type: "put"
+instruction: "put the spoon in the tray"
+instruction_obj_to_replace: "spoon"
+instruction_target_to_replace: "tray"
+instruction_verb_to_replace: "put"
+
+supported_scenes:
+  Merom_1_int:
+    - "Table_measured"
+
+camera_extrinsics:
+  # Same viewpoint pick_spoon uses for this room, and it is not arbitrary: ep_000697 is a real
+  # DROID episode, so the virtual camera stands where the physical one stood in the footage
+  # pi0-FAST was trained on. Every upstream task does this. "default" -- what this config had
+  # first -- is a viewpoint the model has never seen, i.e. self-inflicted V-VIEW, which the
+  # paper ranks among the two most damaging perturbations of the fifteen.
+  # Note the swap: upstream feeds cam2 as the primary view here.
+  cam1: "ep_000697_cam2"
+  cam2: "ep_000697_cam1"
+
+main_objects:
+    - type: "DatasetObject"
+      name: "teaspoon"
+      category: "teaspoon"
+      model: "eilfij"
+      # Model-local axes: upstream writes [0.04, 0.19, 0.01], which is the size in WORLD axes
+      # after the 90 degree rotation below, and OmniGibson divides it component-wise by the
+      # mesh's own native bbox. Left as upstream it skews the mesh by a factor of 20.
+      bounding_box: [ 0.19, 0.04, 0.01 ]
+      orientation: [ 0, 0, 0.7071068, 0.7071068 ]
+      # The spot the soda can occupied -- proven on the table by the rendered frame. The can
+      # cleared REACH and GRASP here but slid out of the gripper on the lift (8 cm cylinder,
+      # 8.5 cm jaw opening). The spoon is 1 cm thick and holds: pick_spoon from this same spot
+      # scores 1.0.
+      relative_bbox_position: [0.28, 0.0, 0.02 ]
+
+target_objects:
+    - type: "DatasetObject"
+      name: "tray"
+      category: "tray"
+      model: "vxbtax"
+      bounding_box: [ 0.33, 0.48, 0.09 ]
+      relative_bbox_position: [0.55, 0.25, 0.0 ]
+
+distractors: []
+immutables: []
+
+cached_semantic_perturbations:
+  "S-LANG":
+    - ""
+  "S-AFF":
+    - ""
+  "S-INT":
+    - ""
+  "S-PROP":
+    - ""
+  "S-MO":
+    - ""
