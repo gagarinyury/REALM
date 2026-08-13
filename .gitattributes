@@ -1,0 +1,13 @@
+# Files whose line endings are load-bearing, and must survive a Windows checkout.
+#
+# git's core.autocrlf=true -- the default of the Git for Windows installer -- rewrites
+# checked-out text files to CRLF. For a patch file that is fatal but silent: `git apply`
+# compares context lines byte for byte against the LF-terminated engine sources, finds no
+# match, and reports only "patch does not apply", with nothing to suggest that the patch
+# itself was altered on the way to disk. Measured on a fresh clone: 52 CRLF, 0 LF.
+*.patch text eol=lf
+*.diff text eol=lf
+
+# Shell scripts fail with a less mysterious but equally annoying error under CRLF
+# ("/bin/bash^M: bad interpreter") when the repository is shared with WSL2.
+*.sh text eol=lf
