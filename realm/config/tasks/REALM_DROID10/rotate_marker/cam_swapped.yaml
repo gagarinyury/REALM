@@ -1,14 +1,16 @@
-# Вариант rotate_marker с переставленными внешними камерами.
+# rotate_marker with the two exterior cameras swapped.
 #
-# Зачем. cam1 этого эпизода стоит с ПРОТИВОПОЛОЖНОЙ стороны робота относительно задач,
-# которые работают: y = -0.427 против +0.543 у ep_001042 и +0.214 у ep_070045. В сцене
-# Benevolence_1_int/Kitchen_Counter, где робот развёрнут на 270°, эта камера смотрит в
-# мебель: на кадре 0 в неё попадает край стола крупным планом, а рабочей зоны, маркера и
-# робота не видно вовсе. cam2 того же эпизода стоит там, где у рабочих задач стоит cam1
-# (y = +0.341).
+# cam1 of this episode sits on the opposite side of the robot from the tasks that work:
+# y = -0.427, against +0.543 for ep_001042 and +0.214 for ep_070045. In
+# Benevolence_1_int/Kitchen_Counter, where the robot faces 270 degrees, that camera looks
+# into furniture: frame 0 is filled by the edge of the table, with no work area, no marker
+# and no robot in view. cam2 of the same episode sits where cam1 sits for the working
+# tasks (+0.341).
 #
-# Отличается от default.yaml ровно двумя строками -- порядком камер. Всё остальное
-# скопировано без изменений, чтобы разница в результате имела единственную причину.
+# ASCII only, deliberately: REALM opens its task YAMLs with a bare open(path, "r"), which
+# on Windows decodes as cp1252 and dies with UnicodeDecodeError on any non-ASCII byte.
+#
+# Differs from default.yaml in the two camera lines only.
 task:
   type": "DummyTask"
   termination_config: {}
@@ -28,8 +30,8 @@ supported_scenes:
     #- "Dining_Table"
 
 camera_extrinsics:
-  cam1: "ep_032740_cam2"   # переставлено: было ep_032740_cam1
-  cam2: "ep_032740_cam1"   # переставлено: было ep_032740_cam2
+  cam1: "ep_032740_cam2"   # was ep_032740_cam1
+  cam2: "ep_032740_cam1"   # was ep_032740_cam2
 
 reset_joint_pos: [-0.01373833, -0.5032997,  -0.11150811, -2.2225301,   0.15665062,  1.4554586, -0.08681711]
 
