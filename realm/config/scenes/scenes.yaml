@@ -124,6 +124,7 @@ Merom_1_int:
     z: 1.0
     to_remove:
       - "armchair_qplklw_0"
+    lights_on: true
     pos: [ 0.0, 7.75, 0.0 ]
     rot: [ 0, 0, 180 ]
 

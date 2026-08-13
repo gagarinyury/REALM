@@ -488,6 +488,26 @@ class RealmEnvironmentDynamic(RealmEnvironmentBase):
 
             og.sim.play()
 
+            # BEHAVIOR-1K scenes ship with every lamp switched off, so an indoor room is lit only by
+            # the sky dome leaking through the windows -- the ceiling blocks the rest. Measured on
+            # Merom_1_int: 90% of the wrist-camera frame falls below the darkness threshold and
+            # pi0-FAST scores 0.0 without reaching a single stage.
+            #
+            # Note that `ToggledOn` does NOT help here: omnigibson/object_states/toggle.py never
+            # touches a light prim, so flipping it moved frame brightness by 0.6 of 255. The lamps
+            # are driven through USD prims carrying `inputs:intensity`, which is exactly what the
+            # V-LIGHT perturbation already locates -- reuse it rather than writing a second lookup.
+            #
+            # Opt-in per spawn point via `lights_on` in scenes.yaml (true, or an explicit intensity),
+            # so push_switch -- whose whole task is toggling a light -- keeps its original state.
+            lights_on = scene_data.get("lights_on", False)
+            if lights_on:
+                # V-LIGHT samples intensity from 20000..750000; `true` takes the geometric middle of
+                # that range, since perceived brightness follows intensity logarithmically.
+                intensity = 122000.0 if lights_on is True else float(lights_on)
+                _pert_v_light(self, intensity=intensity)
+                print(f"[REALM] lights_on: applied intensity {intensity:.0f}", flush=True)
+
     def disable_visual_toggles(self):
         for obj in self.omnigibson_env.scene.objects:
             # TODO: (martin) for pre-baked OG switches on walls their rotation seems off so we cannot use those without the visual toggle...
