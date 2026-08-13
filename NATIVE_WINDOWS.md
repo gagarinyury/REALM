@@ -639,6 +639,85 @@ was obtained with a grasp check that never rejected a single step.
 `tests/gripper_bench.py` prints both the fork's live formula and the resulting flag, so the
 bench cannot silently drift away from `env_base.py` again.
 
+### 13. Running upstream's own og391 port natively (13.08.2026)
+
+The sections above describe this fork's route: repair the asset, keep the
+engine untouched. Upstream took a different one — keep the author's asset
+and patch the engine — and on 13.08.2026 that route was brought up natively
+on Windows as well, on branch `win/dd091fd` (upstream `dd091fd` plus the
+commits described here). It reaches `task_progression = 1.0`, `binary_SR =
+1.0` on `put_green_block_into_bowl`, clearing all five stages at steps
+[192, 230, 236, 264, 265] with zero environment collisions. The same branch
+on a rented Linux pod (A6000) cleared them at [173, 212, 218, 248, 249].
+
+Three obstacles are Windows-only. None of them is a defect upstream: they
+appear only outside the container it is developed in.
+
+**Git rewrites the patches on checkout.** `core.autocrlf=true` is the
+default of the Git for Windows installer, so `realm/misc/*.patch` arrive as
+CRLF — measured on a fresh clone: 52 CRLF, 0 LF. `git apply` compares
+context lines byte for byte against the LF-terminated engine sources, finds
+no match, and reports only `patch does not apply`. Nothing in that message
+suggests the patch itself was altered on its way to disk; the natural
+reading is that the engine version is wrong. Fixed by a `.gitattributes`
+pinning `*.patch` and `*.diff` to LF.
+
+**`dm_robotics` has no Windows build at all.** `dm-robotics-controllers`
+ships manylinux wheels only — no Windows wheel and no sdist — which makes
+pip refuse the whole chain, `dm-robotics-moma` included. The import sits in
+`realm/robots/robot_ik/robot_ik_solver.py`, which `controller_registry`
+reaches through `droid_ee_controller`, so the port dies at the first import
+of `env_base`, before any robot exists. Section 3's replacement solver
+(same formulation transcribed from the upstream C++ sources, expressed
+against `dm_control.mjcf` with `osqp`, both of which have Windows wheels)
+is carried onto the branch for exactly this reason. This is also the
+obstacle upstream cited when declining to support Windows.
+
+**`no_rendering=True` kills the process silently.** With rendering disabled
+the process dies inside the environment constructor: the log stops at `app
+ready`, with no exception, no traceback and no non-zero exit anywhere to
+read. Anything that needs the environment without a policy — the gripper
+bench, for instance — has to be run with rendering on.
+
+**The render mode decides the result, and it does so through a threshold.**
+`eval.py` binarises the gripper channel: `new_action[-1] = 1 if action[-1] >
+0.5 else -1`. π0-FAST is trained on real DROID footage, and how far it
+commits to a grasp depends on how photographic the image is. Measured on
+one task, same branch, same checkpoint, same machine:
+
+| render | max gripper command | steps above 0.5 | gripper_state | result |
+| --- | --- | --- | --- | --- |
+| `rt` (shadows, reflections, AO) | +0.879 | 36 of 280 | up to 0.628 | **1.0** |
+| `r` (those switched off) | +0.487 | **0 of 800** | 0.000 | 0.2 |
+
+In `r` the threshold is never crossed, so `-1` is sent for all 800 steps,
+the joint sits at its lower limit, and `qpos[7]` reads 0.0000 with zero
+variance for the whole episode. Nothing errors: the policy honestly
+hesitates, the threshold honestly fires, and the gripper stays open. The
+distance between a full success and a flat zero is thirteen thousandths of
+one channel. A stage rubric that breaks at the first unmet stage then
+freezes everything downstream, which is why this reads as 0.2 rather than
+as a grasp failure.
+
+The gripper itself was never at fault, which `tests/gripper_bench.py`
+settles in three minutes without a policy: commanded shut, the pads close
+from 89.7 mm to 7.1 mm and both the prismatic and the revolute finger
+joints travel their full range.
+
+**VRAM arithmetic on a 16 GB card.** With
+`XLA_PYTHON_CLIENT_MEM_FRACTION=0.6` the policy server holds 12.9 GB and
+the simulator is left 3.4 GB, at which point `rt` dies on its first frame
+with a GPU pagefault (reported as "a device lost, out of memory, or an
+unexpected bug", with a crash dump under `appdata/local/logs/Kit/`). At
+0.5 the server takes 10.7 GB, the simulator takes 3.3 GB, and `rt` runs —
+with roughly 2 GB to spare. Lowering the fraction did not degrade the
+model: `probe_policy.py` returned bit-identical chunks either side of the
+change. The general point for anyone with one GPU: a full-quality render
+and an 11 GB policy do not both fit on 16 GB by default, and the way out is
+either this split, or moving the policy to a second host — which openpi
+supports natively, since the same server drives the real robot over a
+socket.
+
 ## Status
 
 Full pipeline verified working end-to-end natively on Windows (RTX 5080,
@@ -668,6 +747,13 @@ With all of them addressed, π0-FAST drives the arm for the first time on
 this fork: on `put_green_block_into_bowl` (Default, 800 steps) it clears the
 REACH stage at step 290 and brings the gripper onto the block, commanding a
 close for 184 of the 800 steps. Progression stops at 0.2.
+
+**Superseded on 13.08.2026 by section 13**: on upstream's own og391 branch,
+run natively on this same machine in `rt`, the same model and checkpoint
+complete the task — `task_progression = 1.0`, all five stages, zero
+environment collisions. The ceiling described below is specific to this
+fork's asset repair, and the 0.2 that upstream's branch reports in the
+reduced render mode has a different cause again (a threshold, section 13).
 
 **It stops there for a reason on our side, not the model's — see section 9.
 The gripper never actually closes.** π0.5 reaches exactly the same ceiling on
