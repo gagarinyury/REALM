@@ -87,6 +87,10 @@ if (-not $policyUp) {
 
 $env:OMNIGIBSON_HEADLESS = "1"
 $env:PYTHONIOENCODING = "utf-8"
+# Isaac Sim prompts for the Omniverse EULA on stdin the first time it starts in a session
+# without one accepted, and in a non-interactive session that is fatal: "Unable to bootstrap
+# inner kit kernel: EOF when reading a line". Read in site-packages/isaacsim/kit_app.py:19.
+$env:OMNI_KIT_ACCEPT_EULA = "YES"
 # python puts the script's directory on sys.path, not the working directory, so the realm
 # package is not importable from examples/ without this.
 $env:PYTHONPATH = $Repo
