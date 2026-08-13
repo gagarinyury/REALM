@@ -45,7 +45,7 @@ objects:
     - type: "DatasetObject"
       name: "bookshelves_1a"
       category: "shelf"
-      model: "opryhp" #"uriudf" #"vgzdul"
+      model: "adgrkb"  # was opryhp -- absent from the 3.9.1 dataset, as are uriudf and vgzdul
       fixed_base: True
       visual_only: True
       position: [0, 0.822, 0.86658] #[0, 0.822, 0.55874]
@@ -54,7 +54,7 @@ objects:
     - type: "DatasetObject"
       name: "bookshelves_1b"
       category: "shelf"
-      model: "opryhp" #"uriudf" #"vgzdul"
+      model: "adgrkb"  # was opryhp -- absent from the 3.9.1 dataset, as are uriudf and vgzdul
       #fixed_base: True
       visual_only: True
       position: [0, 0.822, 0.35] #[0, 0.822, 0.55874]
@@ -63,7 +63,7 @@ objects:
     - type: "DatasetObject"
       name: "bookshelves_2a"
       category: "shelf"
-      model: "opryhp" #"uriudf" #"vgzdul"
+      model: "adgrkb"  # was opryhp -- absent from the 3.9.1 dataset, as are uriudf and vgzdul
       #fixed_base: True
       visual_only: True
       position: [1.35, 0.822, 0.86658] #[1.65, 0.822, 0.55874]
@@ -72,7 +72,7 @@ objects:
     - type: "DatasetObject"
       name: "bookshelves_2b"
       category: "shelf"
-      model: "opryhp" #"uriudf" #"vgzdul"
+      model: "adgrkb"  # was opryhp -- absent from the 3.9.1 dataset, as are uriudf and vgzdul
       fixed_base: True
       visual_only: True
       position: [1.35, 0.822, 0.35] #[1.65, 0.822, 0.55874]
@@ -89,7 +89,7 @@ objects:
     - type: "DatasetObject"
       name: "shelf"
       category: "shelf"
-      model: "xgvyyv"
+      model: "adgrkb"  # was xgvyyv -- also absent from the 3.9.1 dataset
       fixed_base: True
       visual_only: True
       position: [-1.5, 0.15, 0.75]
