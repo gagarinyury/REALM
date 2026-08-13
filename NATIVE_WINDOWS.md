@@ -679,6 +679,20 @@ ready`, with no exception, no traceback and no non-zero exit anywhere to
 read. Anything that needs the environment without a policy — the gripper
 bench, for instance — has to be run with rendering on.
 
+**A single non-ASCII byte in a task YAML hangs the load.** `env_dynamic.py`
+reads task configs with a bare `open(path, "r")`. On Linux that decodes as
+UTF-8 and any comment goes through; on Windows it decodes as cp1252 and
+raises `UnicodeDecodeError`. The process does not exit on it — it hangs with
+the CPU near idle, which is indistinguishable from a slow scene load, of
+which there are several legitimate ones. Keep task configs ASCII.
+
+**`common_freq` that disagrees with the step rate kills the process.** Passing
+`common_freq=60` while `set_sim_config` has established 15 Hz kills the run
+immediately after the simulator starts, again with nothing to read. The
+working path (`eval.py`) does not pass the parameter at all and lets the
+frequencies come from `set_sim_config`; anything driving the environment
+directly should do the same.
+
 **The render mode decides the result, and it does so through a threshold.**
 `eval.py` binarises the gripper channel: `new_action[-1] = 1 if action[-1] >
 0.5 else -1`. π0-FAST is trained on real DROID footage, and how far it
@@ -709,10 +723,32 @@ joints travel their full range.
 the simulator is left 3.4 GB, at which point `rt` dies on its first frame
 with a GPU pagefault (reported as "a device lost, out of memory, or an
 unexpected bug", with a crash dump under `appdata/local/logs/Kit/`). At
-0.5 the server takes 10.7 GB, the simulator takes 3.3 GB, and `rt` runs —
-with roughly 2 GB to spare. Lowering the fraction did not degrade the
-model: `probe_policy.py` returned bit-identical chunks either side of the
-change. The general point for anyone with one GPU: a full-quality render
+0.5 the server takes 10.7 GB, the simulator takes 3.3 GB, and `rt` runs.
+Lowering the fraction did not degrade the model: `probe_policy.py` returned
+bit-identical chunks at 0.5, 0.48 and 0.47.
+
+The floor was then measured rather than guessed. With the cameras moved off
+the GPU, so that the only other consumer is the Windows desktop at ~1.1 GB:
+
+| fraction | server + desktop | free for the simulator | inference |
+| --- | --- | --- | --- |
+| 0.50 | 9 634 MiB | 6.7 GB | works |
+| 0.48 | 9 404 MiB | 6.9 GB | works |
+| 0.47 | 9 293 MiB | 7.0 GB | works |
+| 0.45 | 8 895 MiB | 7.4 GB | **fails**: short by 465 MB |
+
+Note where it fails: at 0.45 the checkpoint **loads** and the server reports
+`server listening`, and only the first real inference raises
+`RESOURCE_EXHAUSTED`. A server that came up is not evidence that the
+fraction is sufficient.
+
+Scenes differ by a factor of two in what they demand — 3.3 GB for
+`Pomaria_1_int/Table`, 6.2 GB for `office_cubicles_left` (peak 15 841 MiB,
+leaving 462 MB) — so the headroom that carries one task can be too thin for
+the next. One more trap: after a crash the memory comes back with a delay,
+so `nvidia-smi` can report 15.7 GB in use with none of your processes alive.
+
+The general point for anyone with one GPU: a full-quality render
 and an 11 GB policy do not both fit on 16 GB by default, and the way out is
 either this split, or moving the policy to a second host — which openpi
 supports natively, since the same server drives the real robot over a
