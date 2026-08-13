@@ -128,6 +128,28 @@ Merom_1_int:
     pos: [ 0.0, 7.75, 0.0 ]
     rot: [ 0, 0, 180 ]
 
+  # Same spot, with z taken from the scene instead of the stored value. The table top in
+  # the current dataset is at 1.042, not 1.0: with the stored number four of the six props
+  # (plate, tray, beaker, can_of_soda) spawn 4 cm INSIDE the table top and physics ejects
+  # them. Raising it to 1.05 puts five of the six above the surface, so they simply fall
+  # onto it. The tray is beyond the table edge horizontally (edge at x=-0.30, tray at
+  # x=-0.15) and no z fixes that.
+  Table_measured:
+    x_min: -0.7
+    x_max: -0.3
+    y_min: 7.50
+    y_max: 8.00
+    z: 1.05
+    to_remove:
+      - "armchair_qplklw_0"
+    # 122000 was picked blind, against a scene whose textures were not loading -- everything
+    # rendered as a flat grey stand-in that reflects far less than the real materials. With the
+    # textures back (a clean reinstall fixed them) that value blows the frame out to white.
+    # 40000 is the lower third of the range V-LIGHT samples from (20000..750000).
+    lights_on: 40000
+    pos: [ 0.0, 7.75, 0.0 ]
+    rot: [ 0, 0, 180 ]
+
 
 office_cubicles_left:
   Circular_Table:
